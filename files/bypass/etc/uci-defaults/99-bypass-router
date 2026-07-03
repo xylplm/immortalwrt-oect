@@ -3,22 +3,52 @@
 # First-boot bypass-router defaults.
 # This variant is intentionally separated from base/plus images.
 
-uci set network.wan.proto='static'
-uci set network.wan.ipaddr='10.11.11.3'
-uci set network.wan.netmask='255.255.255.0'
-uci set network.wan.gateway='10.11.11.1'
-uci set network.wan.dns='10.11.11.1 119.29.29.29'
-uci delete network.wan6 2>/dev/null || true
+find_firewall_zone() {
+    local name="$1"
+    local index=0
+    local zone
 
+    while uci -q get "firewall.@zone[$index]" >/dev/null; do
+        zone="$(uci -q get "firewall.@zone[$index].name")"
+        if [ "$zone" = "$name" ]; then
+            printf '@zone[%s]\n' "$index"
+            return 0
+        fi
+        index=$((index + 1))
+    done
+
+    return 1
+}
+
+if uci -q get network.wan >/dev/null; then
+    bypass_iface='wan'
+else
+    bypass_iface='lan'
+    uci -q get network.lan >/dev/null || uci set network.lan='interface'
+fi
+
+uci set network."$bypass_iface".proto='static'
+uci set network."$bypass_iface".ipaddr='10.11.11.3'
+uci set network."$bypass_iface".netmask='255.255.255.0'
+uci set network."$bypass_iface".gateway='10.11.11.1'
+uci set network."$bypass_iface".dns='10.11.11.1 119.29.29.29'
+uci delete network."${bypass_iface}6" 2>/dev/null || true
+
+uci -q get dhcp.lan >/dev/null || uci set dhcp.lan='dhcp'
+uci set dhcp.lan.interface='lan'
 uci set dhcp.lan.ignore='1'
 uci set dhcp.lan.dhcpv4='disabled'
 uci set dhcp.lan.dhcpv6='disabled'
 uci set dhcp.lan.ra='disabled'
 
 uci set firewall.@defaults[0].forward='ACCEPT'
-uci set firewall.@zone[1].input='ACCEPT'
-uci set firewall.@zone[1].forward='ACCEPT'
-uci delete firewall.@zone[1].masq 2>/dev/null || true
+
+wan_zone="$(find_firewall_zone wan)"
+if [ -n "$wan_zone" ]; then
+    uci set firewall."$wan_zone".input='ACCEPT'
+    uci set firewall."$wan_zone".forward='ACCEPT'
+    uci delete firewall."$wan_zone".masq 2>/dev/null || true
+fi
 
 uci set system.@system[0].timezone='CST-8'
 uci set system.@system[0].zonename='Asia/Shanghai'

@@ -65,7 +65,7 @@ jobs:
       bypass_rootfs_partsize: ${{ steps.vars.outputs.bypass_rootfs_partsize }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Resolve build inputs
         id: vars
@@ -119,6 +119,7 @@ jobs:
 
           variants=$(printf '%s' "$variants" | tr ',;' '  ' | xargs)
           [ -n "$variants" ] || { echo 'No variants selected.' >&2; exit 1; }
+          variants=$(printf '%s' "$variants" | tr ' ' '\n' | awk 'NF && !seen[$0]++' | xargs)
           for variant in $variants; do
             case "$variant" in
               base|plus|bypass) ;;
@@ -143,7 +144,7 @@ jobs:
 
           if [ -z "$version" ]; then
             versions=$(
-              curl -fsSL "$DOWNLOAD_BASE/" |
+              curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 --connect-timeout 30 --max-time 120 "$DOWNLOAD_BASE/" |
                 grep -Eo 'href="[0-9]+\.[0-9]+\.[0-9]+/"' |
                 sed -E 's#href="([^"]+)/"#\1#' |
                 sort -V
@@ -202,7 +203,7 @@ jobs:
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install host tools
         env:
@@ -231,8 +232,8 @@ jobs:
           set -euo pipefail
           imagebuilder="immortalwrt-imagebuilder-${VERSION}-${TARGET_DASH}.Linux-x86_64.tar.zst"
 
-          curl -fsSLO "$RELEASE_URL/sha256sums"
-          curl -fsSLO "$RELEASE_URL/$imagebuilder"
+          curl -fsSLO --retry 5 --retry-all-errors --retry-delay 10 --connect-timeout 30 --max-time 300 "$RELEASE_URL/sha256sums"
+          curl -fsSLO --retry 5 --retry-all-errors --retry-delay 10 --connect-timeout 30 --max-time 900 "$RELEASE_URL/$imagebuilder"
           grep " \*$imagebuilder$" sha256sums | sha256sum -c -
           tar --zstd -xf "$imagebuilder"
           mv "${imagebuilder%.tar.zst}" imagebuilder
@@ -384,7 +385,9 @@ jobs:
             bypass_script="$mount_dir/etc/uci-defaults/99-bypass-router"
             if [ "$VARIANT" = 'bypass' ]; then
               sudo test -f "$bypass_script" || { echo 'Bypass defaults script is missing from bypass image.' >&2; exit 1; }
-              echo "Verified bypass defaults script is present: $(basename "$image_gz")"
+              sudo test -x "$bypass_script" || { echo 'Bypass defaults script is not executable.' >&2; exit 1; }
+              sudo /bin/sh -n "$bypass_script"
+              echo "Verified bypass defaults script is present and executable: $(basename "$image_gz")"
             else
               if sudo test -e "$bypass_script"; then
                 echo 'Bypass defaults script leaked into a non-bypass image.' >&2
@@ -422,7 +425,7 @@ jobs:
           sha256sum release/* > release/sha256sums-${VARIANT}.txt
 
       - name: Upload variant artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: immortalwrt-oect-${{ needs.prepare.outputs.version }}-${{ matrix.variant }}
           path: release/*
@@ -437,7 +440,7 @@ jobs:
     if: always() && needs.prepare.result == 'success' && needs.build.result == 'success'
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -471,7 +474,7 @@ jobs:
           echo "title=ImmortalWrt ${VERSION} OEC-turbo ${BOARD} ${release_date}" >> "$GITHUB_OUTPUT"
 
       - name: Upload combined artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.artifacts.outputs.tag }}
           path: release/*
@@ -479,7 +482,7 @@ jobs:
 
       - name: Publish GitHub Release
         if: needs.prepare.outputs.publish_release == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.artifacts.outputs.tag }}
           name: ${{ steps.artifacts.outputs.title }}
@@ -488,11 +491,11 @@ jobs:
           overwrite_files: true
           files: release/*
           body: |
-            基于官方 ImmortalWrt `${{ needs.prepare.outputs.version }}` 的 `armsr/armv8 generic` rootfs，并使用 ophub/unifreq 打包链路生成 `wxy-oect` 设备镜像。
+            基于官方 ImmortalWrt `${{ needs.prepare.outputs.version }}` 的 `${{ needs.prepare.outputs.target }} ${{ needs.prepare.outputs.rootfs_profile }}` rootfs，并使用 ophub/unifreq 打包链路生成 `${{ needs.prepare.outputs.board }}` 设备镜像。
 
             - Board: `${{ needs.prepare.outputs.board }}`
-            - Rootfs target: `armsr/armv8 generic`
-            - Kernel: `rk35xx/6.1.y` latest from `ophub/kernel`
+            - Rootfs target: `${{ needs.prepare.outputs.target }} ${{ needs.prepare.outputs.rootfs_profile }}`
+            - Kernel: `${{ env.OECT_KERNEL }}` latest from `${{ env.OECT_KERNEL_REPO }}`
             - Variants: `${{ needs.prepare.outputs.variants }}`
             - Rootfs partition: base `${{ needs.prepare.outputs.base_rootfs_partsize }} MiB`, plus `${{ needs.prepare.outputs.plus_rootfs_partsize }} MiB`, bypass `${{ needs.prepare.outputs.bypass_rootfs_partsize }} MiB`
 
