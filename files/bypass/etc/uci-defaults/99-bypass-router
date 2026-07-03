@@ -1,0 +1,29 @@
+#!/bin/sh
+
+# First-boot bypass-router defaults.
+# This variant is intentionally separated from base/plus images.
+
+uci set network.wan.proto='static'
+uci set network.wan.ipaddr='10.11.11.3'
+uci set network.wan.netmask='255.255.255.0'
+uci set network.wan.gateway='10.11.11.1'
+uci set network.wan.dns='10.11.11.1 119.29.29.29'
+uci delete network.wan6 2>/dev/null || true
+
+uci set dhcp.lan.ignore='1'
+uci set dhcp.lan.dhcpv4='disabled'
+uci set dhcp.lan.dhcpv6='disabled'
+uci set dhcp.lan.ra='disabled'
+
+uci set firewall.@defaults[0].forward='ACCEPT'
+uci set firewall.@zone[1].input='ACCEPT'
+uci set firewall.@zone[1].forward='ACCEPT'
+uci delete firewall.@zone[1].masq 2>/dev/null || true
+
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+
+grep -q '^net.ipv4.ip_forward=' /etc/sysctl.conf 2>/dev/null || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+
+uci commit
+exit 0

@@ -1,0 +1,2 @@
+# Variant 1: official minimal image.
+# Keep empty until the real OEC-turbo profile requires a package that is not pulled by the official profile.

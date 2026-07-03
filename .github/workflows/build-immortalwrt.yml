@@ -1,0 +1,368 @@
+name: Build ImmortalWrt
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: ImmortalWrt release version. Leave empty to use the latest stable release.
+        required: false
+        type: string
+      target:
+        description: Target path under releases/<version>/targets/.
+        required: true
+        default: rockchip/armv8
+        type: string
+      profile:
+        description: Official ImageBuilder profile name.
+        required: true
+        default: friendlyarm_nanopi-r3s
+        type: string
+      filesystem:
+        description: Image filesystem.
+        required: true
+        default: squashfs
+        type: choice
+        options:
+          - squashfs
+          - ext4
+      variants:
+        description: 'Build variants: all, or a space/comma separated list of base plus bypass.'
+        required: false
+        default: all
+        type: string
+      extra_packages:
+        description: Extra packages appended to plus and bypass variants.
+        required: false
+        type: string
+      prerelease:
+        description: Mark the GitHub release as a prerelease.
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: '20 1 * * 5'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: immortalwrt-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOWNLOAD_BASE: https://downloads.immortalwrt.org/releases
+
+jobs:
+  build:
+    name: Build firmware variants
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl file gawk gettext git jq libncurses-dev \
+            python3 rsync tar unzip wget xz-utils zstd
+
+      - name: Resolve build inputs
+        id: vars
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_TARGET: ${{ inputs.target }}
+          INPUT_PROFILE: ${{ inputs.profile }}
+          INPUT_FILESYSTEM: ${{ inputs.filesystem }}
+          INPUT_VARIANTS: ${{ inputs.variants }}
+          INPUT_EXTRA_PACKAGES: ${{ inputs.extra_packages }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          version="${INPUT_VERSION:-}"
+          target="${INPUT_TARGET:-}"
+          profile="${INPUT_PROFILE:-}"
+          filesystem="${INPUT_FILESYSTEM:-}"
+          variants="${INPUT_VARIANTS:-}"
+          extra_packages="${INPUT_EXTRA_PACKAGES:-}"
+          prerelease="${INPUT_PRERELEASE:-}"
+
+          if [ -f config/build.env ]; then
+            # shellcheck disable=SC1091
+            . config/build.env
+          fi
+
+          default_target="${IMMORTALWRT_TARGET:-rockchip/armv8}"
+          default_profile="${IMMORTALWRT_PROFILE:-friendlyarm_nanopi-r3s}"
+          default_filesystem="${IMMORTALWRT_FILESYSTEM:-squashfs}"
+          default_variants="${IMMORTALWRT_VARIANTS:-base plus bypass}"
+
+          if [ -z "$target" ]; then
+            target="$default_target"
+          fi
+          if [ -z "$profile" ]; then
+            profile="$default_profile"
+          fi
+          if [ -z "$filesystem" ]; then
+            filesystem="$default_filesystem"
+          fi
+          if [ -z "$variants" ] || [ "$variants" = 'all' ]; then
+            variants="$default_variants"
+          fi
+          if [ -z "$prerelease" ]; then
+            prerelease='false'
+          fi
+
+          variants=$(printf '%s' "$variants" | tr ',;' '  ' | xargs)
+          for variant in $variants; do
+            case "$variant" in
+              base|plus|bypass) ;;
+              *)
+                echo "Unsupported variant: $variant" >&2
+                echo 'Supported variants: base plus bypass' >&2
+                exit 1
+                ;;
+            esac
+          done
+
+          if [ -z "$version" ]; then
+            versions=$(
+              curl -fsSL "$DOWNLOAD_BASE/" |
+                grep -Eo 'href="[0-9]+\.[0-9]+\.[0-9]+/"' |
+                sed -E 's#href="([^"]+)/"#\1#' |
+                sort -V
+            )
+            version=$(printf '%s\n' "$versions" | tail -n 1)
+          fi
+
+          if [ -z "$version" ]; then
+            echo 'Unable to resolve an ImmortalWrt release version.' >&2
+            exit 1
+          fi
+
+          target_path="$target"
+          target_dash=${target_path//\//-}
+          release_url="$DOWNLOAD_BASE/$version/targets/$target_path"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "target=$target_path" >> "$GITHUB_OUTPUT"
+          echo "target_dash=$target_dash" >> "$GITHUB_OUTPUT"
+          echo "profile=$profile" >> "$GITHUB_OUTPUT"
+          echo "filesystem=$filesystem" >> "$GITHUB_OUTPUT"
+          echo "variants=$variants" >> "$GITHUB_OUTPUT"
+          echo "release_url=$release_url" >> "$GITHUB_OUTPUT"
+          echo "extra_packages=$extra_packages" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Validate official profile
+        shell: bash
+        env:
+          RELEASE_URL: ${{ steps.vars.outputs.release_url }}
+          PROFILE: ${{ steps.vars.outputs.profile }}
+        run: |
+          set -euo pipefail
+          curl -fsSL "$RELEASE_URL/profiles.json" -o profiles.json
+          if ! jq -e --arg profile "$PROFILE" '.profiles[$profile]' profiles.json > /dev/null; then
+            echo "Profile '$PROFILE' was not found in $RELEASE_URL/profiles.json" >&2
+            echo 'Available profiles:' >&2
+            jq -r '.profiles | keys[]' profiles.json >&2
+            exit 1
+          fi
+          jq -r --arg profile "$PROFILE" '.profiles[$profile]' profiles.json
+
+      - name: Download and verify ImageBuilder
+        shell: bash
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          TARGET_DASH: ${{ steps.vars.outputs.target_dash }}
+          RELEASE_URL: ${{ steps.vars.outputs.release_url }}
+        run: |
+          set -euo pipefail
+          imagebuilder="immortalwrt-imagebuilder-${VERSION}-${TARGET_DASH}.Linux-x86_64.tar.zst"
+
+          curl -fsSLO "$RELEASE_URL/sha256sums"
+          curl -fsSLO "$RELEASE_URL/$imagebuilder"
+          grep " \*$imagebuilder$" sha256sums | sha256sum -c -
+          tar --zstd -xf "$imagebuilder"
+          mv "${imagebuilder%.tar.zst}" imagebuilder
+
+      - name: Build variants
+        shell: bash
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          TARGET_DASH: ${{ steps.vars.outputs.target_dash }}
+          PROFILE: ${{ steps.vars.outputs.profile }}
+          FILESYSTEM: ${{ steps.vars.outputs.filesystem }}
+          VARIANTS: ${{ steps.vars.outputs.variants }}
+          EXTRA_PACKAGES: ${{ steps.vars.outputs.extra_packages }}
+          ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          read_packages() {
+            local file="$1"
+            if [ -f "$file" ]; then
+              sed -E 's/[[:space:]]*#.*$//' "$file" | xargs
+            fi
+          }
+
+          inject_root_password() {
+            local dir="$1"
+            if [ -z "${ROOT_PASSWORD:-}" ]; then
+              return 0
+            fi
+            case "$ROOT_PASSWORD" in
+              *$'\n'*|*$'\r'*)
+                echo 'ROOT_PASSWORD must be a single-line value.' >&2
+                exit 1
+                ;;
+            esac
+            local encoded_password
+            encoded_password=$(printf '%s' "$ROOT_PASSWORD" | base64 -w0)
+            install -d "$dir/etc/uci-defaults"
+            cat > "$dir/etc/uci-defaults/01-root-password" <<'SCRIPT'
+          #!/bin/sh
+          password="$(printf '%s' '__ROOT_PASSWORD_BASE64__' | base64 -d)"
+          printf '%s\n%s\n' "$password" "$password" | passwd root >/dev/null 2>&1
+          unset password
+          exit 0
+          SCRIPT
+            sed -i "s#__ROOT_PASSWORD_BASE64__#$encoded_password#g" "$dir/etc/uci-defaults/01-root-password"
+            chmod 0755 "$dir/etc/uci-defaults/01-root-password"
+          }
+
+          prepare_files() {
+            local variant="$1"
+            local dir="files-$variant"
+            rm -rf "$dir"
+            mkdir -p "$dir"
+            if [ -d ../files/common ]; then
+              rsync -a ../files/common/ "$dir/"
+            fi
+            if [ "$variant" = 'bypass' ] && [ -d ../files/bypass ]; then
+              rsync -a ../files/bypass/ "$dir/"
+              inject_root_password "$dir"
+            fi
+            find "$dir/etc/uci-defaults" -type f -exec chmod 0755 {} + 2>/dev/null || true
+            printf '%s' "$dir"
+          }
+
+          variant_packages() {
+            local variant="$1"
+            local base_packages plus_packages bypass_packages
+            base_packages=$(read_packages ../packages/base.txt)
+            plus_packages=$(read_packages ../packages/plus.txt)
+            bypass_packages=$(read_packages ../packages/bypass.txt)
+            case "$variant" in
+              base)
+                printf '%s' "$base_packages"
+                ;;
+              plus)
+                printf '%s %s %s' "$base_packages" "$plus_packages" "$EXTRA_PACKAGES"
+                ;;
+              bypass)
+                printf '%s %s %s %s' "$base_packages" "$plus_packages" "$bypass_packages" "$EXTRA_PACKAGES"
+                ;;
+            esac | xargs
+          }
+
+          variant_filename() {
+            local variant="$1"
+            local filename="$2"
+            if [ "$variant" = 'base' ]; then
+              printf '%s' "$filename"
+              return 0
+            fi
+            case "$filename" in
+              *.img.gz)
+                printf '%s-%s.img.gz' "${filename%.img.gz}" "$variant"
+                ;;
+              *)
+                printf '%s-%s.%s' "${filename%.*}" "$variant" "${filename##*.}"
+                ;;
+            esac
+          }
+
+          mkdir -p release
+          cd imagebuilder
+
+          for variant in $VARIANTS; do
+            echo "Building variant: $variant"
+            rm -rf bin/targets
+
+            files_dir=$(prepare_files "$variant")
+            packages=$(variant_packages "$variant")
+            make image PROFILE="$PROFILE" FILES="$files_dir" PACKAGES="$packages"
+
+            image_count=$(find bin/targets -type f -name "*${PROFILE}*${FILESYSTEM}*.img.gz" | wc -l)
+            if [ "$image_count" -eq 0 ]; then
+              echo "No ${FILESYSTEM} image was generated for profile ${PROFILE} variant ${variant}." >&2
+              find bin/targets -type f >&2
+              exit 1
+            fi
+
+            find bin/targets -type f \
+              \( -name "*${PROFILE}*${FILESYSTEM}*" -o -name '*.manifest' -o -name '*.buildinfo' -o -name 'profiles.json' \) \
+              -print0 |
+              while IFS= read -r -d '' src; do
+                filename=$(basename "$src")
+                dest=$(variant_filename "$variant" "$filename")
+                cp -v "$src" "../release/$dest"
+              done
+          done
+
+          cd ../release
+          sha256sum * > sha256sums.txt
+
+      - name: Prepare release metadata
+        id: artifacts
+        shell: bash
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          TARGET_DASH: ${{ steps.vars.outputs.target_dash }}
+          PROFILE: ${{ steps.vars.outputs.profile }}
+          FILESYSTEM: ${{ steps.vars.outputs.filesystem }}
+          VARIANTS: ${{ steps.vars.outputs.variants }}
+        run: |
+          set -euo pipefail
+          tag="immortalwrt-${VERSION}-${TARGET_DASH}-${PROFILE}-${FILESYSTEM}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "title=ImmortalWrt ${VERSION} ${PROFILE} (${FILESYSTEM})" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$VARIANTS" > release/variants.txt
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifacts.outputs.tag }}
+          path: release/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.artifacts.outputs.tag }}
+          name: ${{ steps.artifacts.outputs.title }}
+          prerelease: ${{ steps.vars.outputs.prerelease }}
+          make_latest: true
+          overwrite_files: true
+          files: release/*
+          body: |
+            基于官方 ImmortalWrt ImageBuilder 自动构建。
+
+            - Version: `${{ steps.vars.outputs.version }}`
+            - Target: `${{ steps.vars.outputs.target }}`
+            - Profile: `${{ steps.vars.outputs.profile }}`
+            - Filesystem: `${{ steps.vars.outputs.filesystem }}`
+            - Variants: `${{ steps.vars.outputs.variants }}`
+
+            变体说明：
+
+            - 标准包：不带特殊后缀，官方精简构建，不添加常用依赖，不写入旁路由默认配置。
+            - `*-plus.*`：在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages`。
+            - `*-bypass.*`：在 `plus` 基础上追加 `files/bypass` 下的旁路由首启配置，并在存在 `ROOT_PASSWORD` secret 时设置 root 密码。
+
+            校验文件：`sha256sums.txt`。

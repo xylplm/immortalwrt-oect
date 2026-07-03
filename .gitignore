@@ -1,0 +1,11 @@
+.DS_Store
+Thumbs.db
+imagebuilder/
+release/
+profiles.json
+sha256sums
+*.tar.zst
+*.img
+*.img.gz
+*.manifest
+*.buildinfo

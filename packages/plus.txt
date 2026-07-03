@@ -1,0 +1,2 @@
+# Variant 2: common packages appended on top of base.
+# Add one package per line after the first build passes.

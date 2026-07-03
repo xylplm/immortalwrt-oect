@@ -1,0 +1,2 @@
+# Variant 3: bypass-router packages appended on top of plus.
+# Keep empty for now; the bypass behavior currently comes from files/bypass.
