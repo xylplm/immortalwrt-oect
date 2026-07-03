@@ -100,6 +100,9 @@ jobs:
           default_profile="${IMMORTALWRT_PROFILE:-friendlyarm_nanopi-r3s}"
           default_filesystem="${IMMORTALWRT_FILESYSTEM:-squashfs}"
           default_variants="${IMMORTALWRT_VARIANTS:-base plus bypass}"
+          base_rootfs_partsize="${IMMORTALWRT_BASE_ROOTFS_PARTSIZE:-300}"
+          plus_rootfs_partsize="${IMMORTALWRT_PLUS_ROOTFS_PARTSIZE:-2048}"
+          bypass_rootfs_partsize="${IMMORTALWRT_BYPASS_ROOTFS_PARTSIZE:-4096}"
 
           if [ -z "$target" ]; then
             target="$default_target"
@@ -124,6 +127,19 @@ jobs:
               *)
                 echo "Unsupported variant: $variant" >&2
                 echo 'Supported variants: base plus bypass' >&2
+                exit 1
+                ;;
+            esac
+          done
+          for item in \
+            "base:$base_rootfs_partsize" \
+            "plus:$plus_rootfs_partsize" \
+            "bypass:$bypass_rootfs_partsize"; do
+            variant_name="${item%%:*}"
+            partsize="${item#*:}"
+            case "$partsize" in
+              ''|*[!0-9]*)
+                echo "Invalid rootfs partsize for ${variant_name}: ${partsize}" >&2
                 exit 1
                 ;;
             esac
@@ -157,6 +173,9 @@ jobs:
           echo "release_url=$release_url" >> "$GITHUB_OUTPUT"
           echo "extra_packages=$extra_packages" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "base_rootfs_partsize=$base_rootfs_partsize" >> "$GITHUB_OUTPUT"
+          echo "plus_rootfs_partsize=$plus_rootfs_partsize" >> "$GITHUB_OUTPUT"
+          echo "bypass_rootfs_partsize=$bypass_rootfs_partsize" >> "$GITHUB_OUTPUT"
 
       - name: Validate official profile
         shell: bash
@@ -199,6 +218,9 @@ jobs:
           FILESYSTEM: ${{ steps.vars.outputs.filesystem }}
           VARIANTS: ${{ steps.vars.outputs.variants }}
           EXTRA_PACKAGES: ${{ steps.vars.outputs.extra_packages }}
+          BASE_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.base_rootfs_partsize }}
+          PLUS_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.plus_rootfs_partsize }}
+          BYPASS_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.bypass_rootfs_partsize }}
           ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
         run: |
           set -euo pipefail
@@ -270,6 +292,20 @@ jobs:
             esac | xargs
           }
 
+          variant_rootfs_partsize() {
+            case "$1" in
+              base)
+                printf '%s' "$BASE_ROOTFS_PARTSIZE"
+                ;;
+              plus)
+                printf '%s' "$PLUS_ROOTFS_PARTSIZE"
+                ;;
+              bypass)
+                printf '%s' "$BYPASS_ROOTFS_PARTSIZE"
+                ;;
+            esac
+          }
+
           variant_filename() {
             local variant="$1"
             local filename="$2"
@@ -296,7 +332,9 @@ jobs:
 
             files_dir=$(prepare_files "$variant")
             packages=$(variant_packages "$variant")
-            make image PROFILE="$PROFILE" FILES="$files_dir" PACKAGES="$packages"
+            rootfs_partsize=$(variant_rootfs_partsize "$variant")
+            echo "Rootfs partsize: ${rootfs_partsize} MiB"
+            make image PROFILE="$PROFILE" FILES="$files_dir" PACKAGES="$packages" CONFIG_TARGET_ROOTFS_PARTSIZE="$rootfs_partsize"
 
             image_count=$(find bin/targets -type f -name "*${PROFILE}*${FILESYSTEM}*.img.gz" | wc -l)
             if [ "$image_count" -eq 0 ]; then
@@ -327,12 +365,22 @@ jobs:
           PROFILE: ${{ steps.vars.outputs.profile }}
           FILESYSTEM: ${{ steps.vars.outputs.filesystem }}
           VARIANTS: ${{ steps.vars.outputs.variants }}
+          BASE_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.base_rootfs_partsize }}
+          PLUS_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.plus_rootfs_partsize }}
+          BYPASS_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.bypass_rootfs_partsize }}
         run: |
           set -euo pipefail
           tag="immortalwrt-${VERSION}-${TARGET_DASH}-${PROFILE}-${FILESYSTEM}"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "title=ImmortalWrt ${VERSION} ${PROFILE} (${FILESYSTEM})" >> "$GITHUB_OUTPUT"
           printf '%s\n' "$VARIANTS" > release/variants.txt
+          cat > release/rootfs-partsize.txt <<EOF
+          base=${BASE_ROOTFS_PARTSIZE}MiB
+          plus=${PLUS_ROOTFS_PARTSIZE}MiB
+          bypass=${BYPASS_ROOTFS_PARTSIZE}MiB
+          EOF
+          rm -f release/sha256sums.txt
+          (cd release && sha256sum * > sha256sums.txt)
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -358,11 +406,12 @@ jobs:
             - Profile: `${{ steps.vars.outputs.profile }}`
             - Filesystem: `${{ steps.vars.outputs.filesystem }}`
             - Variants: `${{ steps.vars.outputs.variants }}`
+            - Rootfs partsize: base `${{ steps.vars.outputs.base_rootfs_partsize }} MiB`, plus `${{ steps.vars.outputs.plus_rootfs_partsize }} MiB`, bypass `${{ steps.vars.outputs.bypass_rootfs_partsize }} MiB`
 
             变体说明：
 
-            - 标准包：不带特殊后缀，官方精简构建，不添加常用依赖，不写入旁路由默认配置。
-            - `*-plus.*`：在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages`。
-            - `*-bypass.*`：在 `plus` 基础上追加 `files/bypass` 下的旁路由首启配置，并在存在 `ROOT_PASSWORD` secret 时设置 root 密码。
+            - 标准包：不带特殊后缀，官方精简构建，不添加常用依赖，不写入旁路由默认配置，rootfs 分区保持 `${{ steps.vars.outputs.base_rootfs_partsize }} MiB`。
+            - `*-plus.*`：在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages`，rootfs 分区为 `${{ steps.vars.outputs.plus_rootfs_partsize }} MiB`。
+            - `*-bypass.*`：在 `plus` 基础上追加 `files/bypass` 下的旁路由首启配置，并在存在 `ROOT_PASSWORD` secret 时设置 root 密码，rootfs 分区为 `${{ steps.vars.outputs.bypass_rootfs_partsize }} MiB`。
 
-            校验文件：`sha256sums.txt`。
+            校验文件：`sha256sums.txt`。分区配置记录：`rootfs-partsize.txt`。

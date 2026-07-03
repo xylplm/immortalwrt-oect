@@ -19,11 +19,11 @@
 
 同一次 workflow 会把多个固件变体发布到同一个 Release，文件名前缀区分用途。
 
-| 文件名 | 说明 | 叠加内容 |
-| --- | --- | --- |
-| 无特殊后缀 | 官方精简包 | 只使用官方 profile 和 `packages/base.txt`，默认不加包 |
-| `*-plus.*` | 常用依赖包 | 在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages` |
-| `*-bypass.*` | 自用旁路由包 | 在 `plus` 基础上追加 `packages/bypass.txt`，并写入 `files/bypass` 下的首启旁路由配置 |
+| 文件名 | 说明 | rootfs 分区 | 叠加内容 |
+| --- | --- | --- | --- |
+| 无特殊后缀 | 官方精简包 | 300 MiB | 只使用官方 profile 和 `packages/base.txt`，默认不加包 |
+| `*-plus.*` | 常用依赖包 | 2048 MiB | 在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages` |
+| `*-bypass.*` | 自用旁路由包 | 4096 MiB | 在 `plus` 基础上追加 `packages/bypass.txt`，并写入 `files/bypass` 下的首启旁路由配置 |
 
 后面你告诉我常用依赖包后，直接加到 `packages/plus.txt`。只属于旁路由模式的包放到 `packages/bypass.txt`。
 
@@ -36,9 +36,44 @@ IMMORTALWRT_TARGET=rockchip/armv8
 IMMORTALWRT_PROFILE=friendlyarm_nanopi-r3s
 IMMORTALWRT_FILESYSTEM=squashfs
 IMMORTALWRT_VARIANTS="base plus bypass"
+IMMORTALWRT_BASE_ROOTFS_PARTSIZE=300
+IMMORTALWRT_PLUS_ROOTFS_PARTSIZE=2048
+IMMORTALWRT_BYPASS_ROOTFS_PARTSIZE=4096
 ```
 
 定时任务：每周五 `01:20 UTC`，约等于北京时间周五 `09:20`。
+
+## 分区和插件空间
+
+当前官方 `rockchip/armv8 friendlyarm_nanopi-r3s squashfs` 镜像的分区大致是：kernel 分区 16 MiB，rootfs 分区 300 MiB。squashfs 固件启动后，可写配置、`opkg` 后装插件、服务运行数据会进入 rootfs 分区里的 overlay/rootfs_data 空间。
+
+你的设备有 8G 存储，但第一波构建仍然保持官方精简包 300 MiB，方便对照官方镜像；`plus` 预留 2G，适合后续常用插件；`bypass` 预留 4G，适合自用旁路由长期安装插件和保存配置数据。没有直接拉到 6G，是为了给后续硬件适配、刷机差异和重新调整分区留出余量。
+
+这三个值都在 `config/build.env`，后续想改只需要调整 `IMMORTALWRT_*_ROOTFS_PARTSIZE`，单位是 MiB。每次 Release 也会带上 `rootfs-partsize.txt` 记录实际构建使用的分区大小。
+
+## Lucky 安装位置参考
+
+Lucky 官方教程：[安装运行&升级备份](https://lucky666.cn/docs/install)，OpenWrt IPK 源码仓库：[gdy666/luci-app-lucky](https://github.com/gdy666/luci-app-lucky)。官方 OpenWrt 安装方式是先安装 CPU 架构对应的 `lucky` 核心 IPK，再安装 `luci-app-lucky` 和 `luci-i18n-lucky-zh-cn`。
+
+按官方 OpenWrt IPK 源码看，核心包主要安装到这些位置：
+
+- `/usr/bin/lucky`：Lucky 主程序。
+- `/etc/init.d/lucky`：OpenWrt 启动服务脚本。
+- `/etc/config/lucky`：UCI 配置文件。
+- `/etc/config/lucky.daji/`：默认运行配置目录，服务脚本会用 `-cd` 指向这里。
+- `/usr/share/luci/`、`/usr/share/rpcd/acl.d/`：LuCI 页面和权限文件。
+
+所以在 OpenWrt 里直接用 `opkg install` 安装 Lucky，本质上会占用 rootfs/overlay 空间；扩大 rootfs 分区后，Lucky、后续插件、配置备份和运行数据都会更宽松。官方教程里提到的 `/usr/local/bin/lucky -c /etc/lucky/lucky.conf` 是手动运行 Linux 二进制的例子，不是 OpenWrt IPK 的默认路径。
+
+官方教程也提醒，切换不同安装方式前要卸载干净。OpenWrt IPK 卸载命令是：
+
+```sh
+opkg remove lucky
+opkg remove luci-i18n-lucky-zh-cn
+opkg remove luci-app-lucky
+```
+
+如果从第三方 Lucky 包或一键脚本切换到官方 IPK，还要确认旧的 `/etc/config/lucky` 和 `/etc/init.d/lucky` 已删除，避免服务启动冲突。
 
 ## 旁路由模式
 
