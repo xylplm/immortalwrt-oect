@@ -60,30 +60,6 @@ IMMORTALWRT_BYPASS_ROOTFS_PARTSIZE=4096
 
 这三个值都在 `config/build.env`，后续想改只需要调整 `IMMORTALWRT_*_ROOTFS_PARTSIZE`，单位是 MiB。每次 Release 也会带上 `rootfs-partsize.txt` 记录实际构建使用的分区大小。
 
-## Lucky 安装位置参考
-
-Lucky 官方教程：[安装运行&升级备份](https://lucky666.cn/docs/install)，OpenWrt IPK 源码仓库：[gdy666/luci-app-lucky](https://github.com/gdy666/luci-app-lucky)。官方 OpenWrt 安装方式是先安装 CPU 架构对应的 `lucky` 核心 IPK，再安装 `luci-app-lucky` 和 `luci-i18n-lucky-zh-cn`。
-
-按官方 OpenWrt IPK 源码看，核心包主要安装到这些位置：
-
-- `/usr/bin/lucky`：Lucky 主程序。
-- `/etc/init.d/lucky`：OpenWrt 启动服务脚本。
-- `/etc/config/lucky`：UCI 配置文件。
-- `/etc/config/lucky.daji/`：默认运行配置目录，服务脚本会用 `-cd` 指向这里。
-- `/usr/share/luci/`、`/usr/share/rpcd/acl.d/`：LuCI 页面和权限文件。
-
-所以在 OpenWrt 里直接用 `opkg install` 安装 Lucky，本质上会占用 rootfs/overlay 空间；扩大 rootfs 分区后，Lucky、后续插件、配置备份和运行数据都会更宽松。官方教程里提到的 `/usr/local/bin/lucky -c /etc/lucky/lucky.conf` 是手动运行 Linux 二进制的例子，不是 OpenWrt IPK 的默认路径。
-
-官方教程也提醒，切换不同安装方式前要卸载干净。OpenWrt IPK 卸载命令是：
-
-```sh
-opkg remove lucky
-opkg remove luci-i18n-lucky-zh-cn
-opkg remove luci-app-lucky
-```
-
-如果从第三方 Lucky 包或一键脚本切换到官方 IPK，还要确认旧的 `/etc/config/lucky` 和 `/etc/init.d/lucky` 已删除，避免服务启动冲突。
-
 ## 旁路由模式
 
 旁路由首启脚本位于 [files/bypass/etc/uci-defaults/99-bypass-router](files/bypass/etc/uci-defaults/99-bypass-router)，只会进入 `*-bypass.*` 固件。
