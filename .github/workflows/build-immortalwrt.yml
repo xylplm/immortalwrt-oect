@@ -323,6 +323,39 @@ jobs:
             esac
           }
 
+          verify_rootfs_partsize() {
+            local variant="$1"
+            local image="$2"
+            local expected="$3"
+            python3 - "$variant" "$image" "$expected" <<'PY'
+          import gzip
+          import struct
+          import sys
+
+          variant, image, expected_text = sys.argv[1:]
+          expected = int(expected_text)
+          with gzip.open(image, 'rb') as image_file:
+              mbr = image_file.read(512)
+
+          if len(mbr) != 512 or mbr[510:512] != b'\x55\xaa':
+              raise SystemExit(f'{variant}: {image}: missing MBR signature')
+
+          rootfs_entry = mbr[446 + 16:446 + 32]
+          start_lba = struct.unpack_from('<I', rootfs_entry, 8)[0]
+          sectors = struct.unpack_from('<I', rootfs_entry, 12)[0]
+          if start_lba == 0 or sectors == 0:
+              raise SystemExit(f'{variant}: {image}: missing rootfs partition entry')
+
+          actual = sectors * 512 // 1024 // 1024
+          if actual != expected:
+              raise SystemExit(
+                  f'{variant}: expected rootfs partition {expected} MiB, got {actual} MiB ({sectors} sectors)'
+              )
+
+          print(f'{variant}: verified rootfs partition {actual} MiB in {image}')
+          PY
+          }
+
           mkdir -p release
           cd imagebuilder
 
@@ -334,7 +367,7 @@ jobs:
             packages=$(variant_packages "$variant")
             rootfs_partsize=$(variant_rootfs_partsize "$variant")
             echo "Rootfs partsize: ${rootfs_partsize} MiB"
-            make image PROFILE="$PROFILE" FILES="$files_dir" PACKAGES="$packages" CONFIG_TARGET_ROOTFS_PARTSIZE="$rootfs_partsize"
+            make image PROFILE="$PROFILE" FILES="$files_dir" PACKAGES="$packages" ROOTFS_PARTSIZE="$rootfs_partsize"
 
             image_count=$(find bin/targets -type f -name "*${PROFILE}*${FILESYSTEM}*.img.gz" | wc -l)
             if [ "$image_count" -eq 0 ]; then
@@ -342,6 +375,9 @@ jobs:
               find bin/targets -type f >&2
               exit 1
             fi
+            while IFS= read -r image; do
+              verify_rootfs_partsize "$variant" "$image" "$rootfs_partsize"
+            done < <(find bin/targets -type f -name "*${PROFILE}*${FILESYSTEM}*.img.gz")
 
             find bin/targets -type f \
               \( -name "*${PROFILE}*${FILESYSTEM}*" -o -name '*.manifest' -o -name '*.buildinfo' -o -name 'profiles.json' \) \
