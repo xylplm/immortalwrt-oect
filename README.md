@@ -34,6 +34,8 @@
 - `luci-app-wol`
 - `luci-app-openvpn-server`
 
+ImmortalWrt 25.12 使用 `apk` 包管理器构建 rootfs。当前官方包里 `luci-app-openvpn-server` 与依赖包 `openvpn-openssl` 都包含 `/etc/config/openvpn`，ImageBuilder 默认会因为同名文件归属冲突中止。workflow 检测到包列表包含 `luci-app-openvpn-server` 时，会对本次 ImageBuilder 的 `apk add` 调用加上 `--force-overwrite`，让 OpenVPN Server 的配置文件覆盖默认配置；这个补丁只作用在当前构建目录，不会修改上游源码。
+
 ## 当前默认配置
 
 默认值在 [config/build.env](config/build.env)：

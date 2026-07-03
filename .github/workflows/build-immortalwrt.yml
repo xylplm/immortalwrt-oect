@@ -306,6 +306,34 @@ jobs:
             esac
           }
 
+          variant_needs_apk_force_overwrite() {
+            case " $1 " in
+              *' luci-app-openvpn-server '*) return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          enable_apk_force_overwrite() {
+            if grep -qF '$(APK) add --force-overwrite --arch $(ARCH_PACKAGES) --no-scripts $(BUILD_PACKAGES)' Makefile; then
+              return 0
+            fi
+            if ! grep -qF '$(APK) add --arch $(ARCH_PACKAGES) --no-scripts $(BUILD_PACKAGES)' Makefile; then
+              echo 'Unable to find ImageBuilder APK install command to patch.' >&2
+              exit 1
+            fi
+            if [ ! -f Makefile.apk-force-overwrite.bak ]; then
+              cp Makefile Makefile.apk-force-overwrite.bak
+            fi
+            sed -i 's#$(APK) add --arch $(ARCH_PACKAGES) --no-scripts $(BUILD_PACKAGES)#$(APK) add --force-overwrite --arch $(ARCH_PACKAGES) --no-scripts $(BUILD_PACKAGES)#' Makefile
+            echo 'Enabled apk --force-overwrite for this variant.'
+          }
+
+          disable_apk_force_overwrite() {
+            if [ -f Makefile.apk-force-overwrite.bak ]; then
+              cp Makefile.apk-force-overwrite.bak Makefile
+            fi
+          }
+
           variant_filename() {
             local variant="$1"
             local filename="$2"
@@ -366,6 +394,11 @@ jobs:
             files_dir=$(prepare_files "$variant")
             packages=$(variant_packages "$variant")
             rootfs_partsize=$(variant_rootfs_partsize "$variant")
+            if variant_needs_apk_force_overwrite "$packages"; then
+              enable_apk_force_overwrite
+            else
+              disable_apk_force_overwrite
+            fi
             echo "Rootfs partsize: ${rootfs_partsize} MiB"
             make image PROFILE="$PROFILE" FILES="$files_dir" PACKAGES="$packages" ROOTFS_PARTSIZE="$rootfs_partsize"
 
