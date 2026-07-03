@@ -1,2 +1,6 @@
 # Variant 2: common packages appended on top of base.
-# Add one package per line after the first build passes.
+# Add one common package per line. Bypass images inherit this list.
+luci-theme-argon
+luci-app-argon-config
+luci-app-wol
+luci-app-openvpn-server

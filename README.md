@@ -25,7 +25,14 @@
 | `*-plus.*` | 常用依赖包 | 2048 MiB | 在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages` |
 | `*-bypass.*` | 自用旁路由包 | 4096 MiB | 在 `plus` 基础上追加 `packages/bypass.txt`，并写入 `files/bypass` 下的首启旁路由配置 |
 
-后面你告诉我常用依赖包后，直接加到 `packages/plus.txt`。只属于旁路由模式的包放到 `packages/bypass.txt`。
+当前 `packages/plus.txt` 已内置 Argon 主题、Argon 配置页、网络唤醒和 OpenVPN Server。后续继续追加常用依赖包时仍放到 `packages/plus.txt`；只属于旁路由模式的包放到 `packages/bypass.txt`。
+
+当前常用依赖包：
+
+- `luci-theme-argon`
+- `luci-app-argon-config`
+- `luci-app-wol`
+- `luci-app-openvpn-server`
 
 ## 当前默认配置
 
@@ -229,6 +236,6 @@ sudo fw_printenv ethaddr
 ## 后续计划
 
 1. 等第一波 Actions 验证通过。
-2. 你给我常用依赖包后，补到 `packages/plus.txt`。
+2. 继续按需把常用依赖包补到 `packages/plus.txt`。
 3. 确认 OEC-turbo 官方 profile；如果官方没有，就进入源码构建，补 OEC-turbo 设备支持。
 4. 旁路由模式再继续细化，例如固定 LAN/WAN 接口、默认防火墙策略、Web 管理入口等。
