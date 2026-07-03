@@ -221,7 +221,6 @@ jobs:
           BASE_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.base_rootfs_partsize }}
           PLUS_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.plus_rootfs_partsize }}
           BYPASS_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.bypass_rootfs_partsize }}
-          ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
         run: |
           set -euo pipefail
 
@@ -230,31 +229,6 @@ jobs:
             if [ -f "$file" ]; then
               sed -E 's/[[:space:]]*#.*$//' "$file" | xargs
             fi
-          }
-
-          inject_root_password() {
-            local dir="$1"
-            if [ -z "${ROOT_PASSWORD:-}" ]; then
-              return 0
-            fi
-            case "$ROOT_PASSWORD" in
-              *$'\n'*|*$'\r'*)
-                echo 'ROOT_PASSWORD must be a single-line value.' >&2
-                exit 1
-                ;;
-            esac
-            local encoded_password
-            encoded_password=$(printf '%s' "$ROOT_PASSWORD" | base64 -w0)
-            install -d "$dir/etc/uci-defaults"
-            cat > "$dir/etc/uci-defaults/01-root-password" <<'SCRIPT'
-          #!/bin/sh
-          password="$(printf '%s' '__ROOT_PASSWORD_BASE64__' | base64 -d)"
-          printf '%s\n%s\n' "$password" "$password" | passwd root >/dev/null 2>&1
-          unset password
-          exit 0
-          SCRIPT
-            sed -i "s#__ROOT_PASSWORD_BASE64__#$encoded_password#g" "$dir/etc/uci-defaults/01-root-password"
-            chmod 0755 "$dir/etc/uci-defaults/01-root-password"
           }
 
           prepare_files() {
@@ -267,7 +241,6 @@ jobs:
             fi
             if [ "$variant" = 'bypass' ] && [ -d ../files/bypass ]; then
               rsync -a ../files/bypass/ "$dir/"
-              inject_root_password "$dir"
             fi
             find "$dir/etc/uci-defaults" -type f -exec chmod 0755 {} + 2>/dev/null || true
             printf '%s' "$dir"
@@ -481,6 +454,6 @@ jobs:
 
             - 标准包：不带特殊后缀，官方精简构建，不添加常用依赖，不写入旁路由默认配置，rootfs 分区保持 `${{ steps.vars.outputs.base_rootfs_partsize }} MiB`。
             - `*-plus.*`：在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages`，rootfs 分区为 `${{ steps.vars.outputs.plus_rootfs_partsize }} MiB`。
-            - `*-bypass.*`：在 `plus` 基础上追加 `files/bypass` 下的旁路由首启配置，并在存在 `ROOT_PASSWORD` secret 时设置 root 密码，rootfs 分区为 `${{ steps.vars.outputs.bypass_rootfs_partsize }} MiB`。
+            - `*-bypass.*`：在 `plus` 基础上追加 `files/bypass` 下的旁路由首启配置，不修改官方默认 root 密码，rootfs 分区为 `${{ steps.vars.outputs.bypass_rootfs_partsize }} MiB`。这是自用旁路由包，其他人请使用标准包或 `*-plus.*`。
 
             校验文件：`sha256sums.txt`。分区配置记录：`rootfs-partsize.txt`。

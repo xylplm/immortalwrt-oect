@@ -25,6 +25,8 @@
 | `*-plus.*` | 常用依赖包 | 2048 MiB | 在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages` |
 | `*-bypass.*` | 自用旁路由包 | 4096 MiB | 在 `plus` 基础上追加 `packages/bypass.txt`，并写入 `files/bypass` 下的首启旁路由配置 |
 
+`*-bypass.*` 是我自己的旁路由启动配置包，默认网络会被改成 `10.11.11.3/24`，不适合其他人的普通刷机环境。其他人请使用无特殊后缀的基础包或 `*-plus.*` 包。
+
 当前 `packages/plus.txt` 已内置 Argon 主题、Argon 配置页、网络唤醒和 OpenVPN Server。后续继续追加常用依赖包时仍放到 `packages/plus.txt`；只属于旁路由模式的包放到 `packages/bypass.txt`。
 
 当前常用依赖包：
@@ -52,6 +54,17 @@ IMMORTALWRT_BYPASS_ROOTFS_PARTSIZE=4096
 
 定时任务：每周五 `01:20 UTC`，约等于北京时间周五 `09:20`。
 
+## 默认登录信息
+
+标准包和 `*-plus.*` 包保持官方默认网络和默认密码，不写入自定义首启密码脚本。
+
+| 固件 | 默认管理地址 | 用户名 | 默认密码 |
+| --- | --- | --- | --- |
+| 无特殊后缀基础包 | `http://192.168.1.1/` | `root` | 空密码 |
+| `*-plus.*` | `http://192.168.1.1/` | `root` | 空密码 |
+
+首次登录后建议立即设置 root 密码。`*-bypass.*` 是自用旁路由包，默认管理地址为 `http://10.11.11.3/`，用户名 `root`，密码同样保持官方默认空密码；其他人不要刷这个包。
+
 ## 分区和插件空间
 
 当前官方 `rockchip/armv8 friendlyarm_nanopi-r3s squashfs` 镜像的分区大致是：kernel 分区 16 MiB，rootfs 分区 300 MiB。squashfs 固件启动后，可写配置、`opkg` 后装插件、服务运行数据会进入 rootfs 分区里的 overlay/rootfs_data 空间。
@@ -74,13 +87,7 @@ IMMORTALWRT_BYPASS_ROOTFS_PARTSIZE=4096
 - 时区：`Asia/Shanghai`
 - 开启 IPv4 forwarding
 
-root 密码不要写进仓库。需要时在 GitHub 仓库设置 Actions Secret：
-
-```text
-ROOT_PASSWORD=你的密码
-```
-
-只有 `*-bypass.*` 固件会注入这个密码脚本，标准包和 `*-plus.*` 不会写入 root 密码。
+这个包只给我自己的网络环境使用。它不会修改 root 密码，首次登录后请手动设置密码。
 
 ## 手动构建
 
