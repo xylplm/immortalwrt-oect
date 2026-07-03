@@ -314,6 +314,92 @@ jobs:
           openwrt_files: ${{ matrix.openwrt_files }}
           builder_name: ${{ env.OECT_BUILDER_NAME }}
 
+      - name: Verify packaged image defaults
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+
+          output_path="${PACKAGED_OUTPUTPATH:-}"
+          [ -n "$output_path" ] || { echo 'PACKAGED_OUTPUTPATH is empty.' >&2; exit 1; }
+
+          mapfile -t images < <(find "$output_path" -maxdepth 1 -type f -name '*.img.gz' | sort)
+          [ "${#images[@]}" -gt 0 ] || { echo 'No packaged .img.gz image found.' >&2; exit 1; }
+
+          tmpdir=$(mktemp -d)
+          rootfs_tar="rootfs/immortalwrt-oect-${VARIANT}-rootfs.tar.gz"
+          [ -f "$rootfs_tar" ] || { echo "Rootfs tarball not found: $rootfs_tar" >&2; exit 1; }
+          expected_shadow="$tmpdir/expected-shadow"
+          if ! tar -xOzf "$rootfs_tar" ./etc/shadow > "$expected_shadow" 2>/dev/null; then
+            tar -xOzf "$rootfs_tar" etc/shadow > "$expected_shadow"
+          fi
+          expected_root_field=$(awk -F: '$1 == "root" { found = 1; print $2 } END { if (!found) exit 1 }' "$expected_shadow") || {
+            echo 'Unable to read root password field from ImageBuilder rootfs.' >&2
+            exit 1
+          }
+
+          loop_dev=''
+          mount_dir=''
+          cleanup() {
+            if [ -n "$mount_dir" ]; then
+              sudo umount "$mount_dir" 2>/dev/null || true
+            fi
+            if [ -n "$loop_dev" ]; then
+              sudo losetup -d "$loop_dev" 2>/dev/null || true
+            fi
+            rm -rf "$tmpdir"
+          }
+          trap cleanup EXIT
+
+          for image_gz in "${images[@]}"; do
+            image="$tmpdir/$(basename "${image_gz%.gz}")"
+            mount_dir="$tmpdir/mnt"
+            mkdir -p "$mount_dir"
+
+            gzip -dc "$image_gz" | dd of="$image" bs=16M conv=sparse status=none
+            loop_dev=$(sudo losetup -P -f --show --read-only "$image")
+            sudo partprobe "$loop_dev" 2>/dev/null || true
+            sleep 2
+
+            root_part="${loop_dev}p2"
+            [ -b "$root_part" ] || { echo "Rootfs partition not found: $root_part" >&2; exit 1; }
+            sudo mount -t btrfs -o ro "$root_part" "$mount_dir"
+
+            actual_root_field=$(sudo awk -F: '$1 == "root" { found = 1; print $2 } END { if (!found) exit 1 }' \
+              "$mount_dir/etc/shadow") || {
+                echo 'Unable to read root password field from packaged image.' >&2
+                exit 1
+              }
+            if [ "$actual_root_field" != "$expected_root_field" ]; then
+              echo 'Packaged image changed the root password field from the ImageBuilder rootfs.' >&2
+              exit 1
+            fi
+            if [ -z "$actual_root_field" ]; then
+              echo "Verified root password field is preserved from ImageBuilder rootfs: empty ($(basename "$image_gz"))"
+            else
+              echo "Verified root password field is preserved from ImageBuilder rootfs: non-empty hash ($(basename "$image_gz"))"
+            fi
+
+            bypass_script="$mount_dir/etc/uci-defaults/99-bypass-router"
+            if [ "$VARIANT" = 'bypass' ]; then
+              sudo test -f "$bypass_script" || { echo 'Bypass defaults script is missing from bypass image.' >&2; exit 1; }
+              echo "Verified bypass defaults script is present: $(basename "$image_gz")"
+            else
+              if sudo test -e "$bypass_script"; then
+                echo 'Bypass defaults script leaked into a non-bypass image.' >&2
+                exit 1
+              fi
+              echo "Verified no bypass defaults script in ${VARIANT}: $(basename "$image_gz")"
+            fi
+
+            sudo umount "$mount_dir"
+            sudo losetup -d "$loop_dev"
+            loop_dev=''
+            mount_dir=''
+            rm -f "$image"
+          done
+
       - name: Collect variant artifacts
         shell: bash
         env:

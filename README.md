@@ -34,11 +34,11 @@
 - `luci-app-wol`
 - `luci-app-openvpn-server`
 
-后续常用包放在 [packages/plus.txt](packages/plus.txt)，只属于旁路由模式的包放在 [packages/bypass.txt](packages/bypass.txt)。
+常用包维护在 [packages/plus.txt](packages/plus.txt)，只属于旁路由模式的包维护在 [packages/bypass.txt](packages/bypass.txt)。
 
 ## 默认登录信息
 
-标准包和 `plus` 保持默认管理地址和官方默认密码行为。
+本仓库不写入或修改 root 密码。当前官方 ImmortalWrt `armsr/armv8 generic` rootfs 的 root 密码字段为空，因此当前构建默认为空密码。
 
 | 固件 | 默认管理地址 | 用户名 | 默认密码 |
 | --- | --- | --- | --- |
@@ -184,7 +184,7 @@ sudo rkdeveloptool wl 0 immortalwrt.img
 
 ### MAC 地址提醒
 
-部分 OEC-turbo 底包的 u-boot 里可能使用相同 MAC 地址，例如 `00:15:18:01:81:31`。同一局域网多台设备 MAC 相同会冲突，需要后续修改。
+部分 OEC-turbo 底包的 u-boot 里可能使用相同 MAC 地址，例如 `00:15:18:01:81:31`。同一局域网多台设备 MAC 相同会冲突，需要自行修改。
 
 参考 ophub 文档第 `12.7.2.4` 节：[README.cn.md](https://github.com/ophub/amlogic-s9xxx-armbian/blob/main/documents/README.cn.md)
 
