@@ -333,7 +333,6 @@ jobs:
             cp -v "$src" "release/$dest"
           done < <(find "$output_path" -maxdepth 1 -type f -name '*.img.gz')
 
-          cp -v "rootfs/immortalwrt-oect-${VARIANT}-rootfs.tar.gz" "release/immortalwrt-oect-rootfs${SUFFIX}.tar.gz"
           sha256sum release/* > release/sha256sums-${VARIANT}.txt
 
       - name: Upload variant artifact
