@@ -31,7 +31,9 @@ uci set network."$bypass_iface".proto='static'
 uci set network."$bypass_iface".ipaddr='10.11.11.3'
 uci set network."$bypass_iface".netmask='255.255.255.0'
 uci set network."$bypass_iface".gateway='10.11.11.1'
-uci set network."$bypass_iface".dns='10.11.11.1 119.29.29.29'
+uci -q delete network."$bypass_iface".dns
+uci add_list network."$bypass_iface".dns='10.11.11.1'
+uci add_list network."$bypass_iface".dns='119.29.29.29'
 uci delete network."${bypass_iface}6" 2>/dev/null || true
 
 uci -q get dhcp.lan >/dev/null || uci set dhcp.lan='dhcp'
@@ -53,7 +55,11 @@ fi
 uci set system.@system[0].timezone='CST-8'
 uci set system.@system[0].zonename='Asia/Shanghai'
 
-grep -q '^net.ipv4.ip_forward=' /etc/sysctl.conf 2>/dev/null || echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+if grep -q '^net.ipv4.ip_forward=' /etc/sysctl.conf 2>/dev/null; then
+    sed -i 's/^net.ipv4.ip_forward=.*/net.ipv4.ip_forward=1/' /etc/sysctl.conf
+else
+    echo 'net.ipv4.ip_forward=1' >> /etc/sysctl.conf
+fi
 
 uci commit
 exit 0

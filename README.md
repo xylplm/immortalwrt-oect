@@ -72,7 +72,7 @@ IMMORTALWRT_BYPASS_ROOTFS_PARTSIZE=4096
 - 静态管理地址：`10.11.11.3/24`
 - 双网口环境优先配置 `wan`；单网口环境没有 `wan` 时配置 `lan`
 - 网关：`10.11.11.1`
-- DNS：`10.11.11.1 119.29.29.29`
+- DNS：`10.11.11.1`、`119.29.29.29`
 - 关闭 LAN DHCP
 - WAN zone 放行 input/forward
 - 时区：`Asia/Shanghai`
