@@ -1,4 +1,4 @@
-name: Build ImmortalWrt
+name: Build ImmortalWrt OEC-turbo
 
 on:
   workflow_dispatch:
@@ -7,33 +7,20 @@ on:
         description: ImmortalWrt release version. Leave empty to use the latest stable release.
         required: false
         type: string
-      target:
-        description: Target path under releases/<version>/targets/.
-        required: true
-        default: rockchip/armv8
-        type: string
-      profile:
-        description: Official ImageBuilder profile name.
-        required: true
-        default: friendlyarm_nanopi-r3s
-        type: string
-      filesystem:
-        description: Image filesystem.
-        required: true
-        default: squashfs
-        type: choice
-        options:
-          - squashfs
-          - ext4
       variants:
         description: 'Build variants: all, or a space/comma separated list of base plus bypass.'
         required: false
         default: all
         type: string
       extra_packages:
-        description: Extra packages appended to plus and bypass variants.
+        description: Extra packages appended to plus and bypass rootfs builds.
         required: false
         type: string
+      publish_release:
+        description: Publish build outputs to GitHub Releases.
+        required: false
+        default: true
+        type: boolean
       prerelease:
         description: Mark the GitHub release as a prerelease.
         required: false
@@ -46,91 +33,99 @@ permissions:
   contents: write
 
 concurrency:
-  group: immortalwrt-${{ github.workflow }}-${{ github.ref }}
+  group: immortalwrt-oect-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:
   DOWNLOAD_BASE: https://downloads.immortalwrt.org/releases
+  OECT_KERNEL: 6.1.y
+  OECT_AUTO_KERNEL: true
+  OECT_KERNEL_REPO: ophub/kernel
+  OECT_KERNEL_USAGE: stable
+  OECT_BUILDER_NAME: xylplm
 
 jobs:
-  build:
-    name: Build firmware variants
+  prepare:
+    name: Resolve build matrix
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
-
+    outputs:
+      version: ${{ steps.vars.outputs.version }}
+      target: ${{ steps.vars.outputs.target }}
+      target_dash: ${{ steps.vars.outputs.target_dash }}
+      rootfs_profile: ${{ steps.vars.outputs.rootfs_profile }}
+      board: ${{ steps.vars.outputs.board }}
+      release_url: ${{ steps.vars.outputs.release_url }}
+      variants: ${{ steps.vars.outputs.variants }}
+      matrix: ${{ steps.vars.outputs.matrix }}
+      extra_packages: ${{ steps.vars.outputs.extra_packages }}
+      publish_release: ${{ steps.vars.outputs.publish_release }}
+      prerelease: ${{ steps.vars.outputs.prerelease }}
+      base_rootfs_partsize: ${{ steps.vars.outputs.base_rootfs_partsize }}
+      plus_rootfs_partsize: ${{ steps.vars.outputs.plus_rootfs_partsize }}
+      bypass_rootfs_partsize: ${{ steps.vars.outputs.bypass_rootfs_partsize }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install host tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential ca-certificates curl file gawk gettext git jq libncurses-dev \
-            python3 rsync tar unzip wget xz-utils zstd
 
       - name: Resolve build inputs
         id: vars
         shell: bash
         env:
           INPUT_VERSION: ${{ inputs.version }}
-          INPUT_TARGET: ${{ inputs.target }}
-          INPUT_PROFILE: ${{ inputs.profile }}
-          INPUT_FILESYSTEM: ${{ inputs.filesystem }}
           INPUT_VARIANTS: ${{ inputs.variants }}
           INPUT_EXTRA_PACKAGES: ${{ inputs.extra_packages }}
           INPUT_PRERELEASE: ${{ inputs.prerelease }}
+          INPUT_PUBLISH_RELEASE: ${{ inputs.publish_release }}
         run: |
           set -euo pipefail
 
           version="${INPUT_VERSION:-}"
-          target="${INPUT_TARGET:-}"
-          profile="${INPUT_PROFILE:-}"
-          filesystem="${INPUT_FILESYSTEM:-}"
           variants="${INPUT_VARIANTS:-}"
           extra_packages="${INPUT_EXTRA_PACKAGES:-}"
           prerelease="${INPUT_PRERELEASE:-}"
+          publish_release="${INPUT_PUBLISH_RELEASE:-}"
 
           if [ -f config/build.env ]; then
             # shellcheck disable=SC1091
             . config/build.env
           fi
 
-          default_target="${IMMORTALWRT_TARGET:-rockchip/armv8}"
-          default_profile="${IMMORTALWRT_PROFILE:-friendlyarm_nanopi-r3s}"
-          default_filesystem="${IMMORTALWRT_FILESYSTEM:-squashfs}"
+          target="${IMMORTALWRT_ROOTFS_TARGET:-armsr/armv8}"
+          rootfs_profile="${IMMORTALWRT_ROOTFS_PROFILE:-generic}"
+          board="${IMMORTALWRT_BOARD:-wxy-oect}"
           default_variants="${IMMORTALWRT_VARIANTS:-base plus bypass}"
-          base_rootfs_partsize="${IMMORTALWRT_BASE_ROOTFS_PARTSIZE:-300}"
+          base_rootfs_partsize="${IMMORTALWRT_BASE_ROOTFS_PARTSIZE:-1280}"
           plus_rootfs_partsize="${IMMORTALWRT_PLUS_ROOTFS_PARTSIZE:-2048}"
           bypass_rootfs_partsize="${IMMORTALWRT_BYPASS_ROOTFS_PARTSIZE:-4096}"
 
-          if [ -z "$target" ]; then
-            target="$default_target"
-          fi
-          if [ -z "$profile" ]; then
-            profile="$default_profile"
-          fi
-          if [ -z "$filesystem" ]; then
-            filesystem="$default_filesystem"
-          fi
           if [ -z "$variants" ] || [ "$variants" = 'all' ]; then
             variants="$default_variants"
           fi
           if [ -z "$prerelease" ]; then
             prerelease='false'
           fi
+          if [ -z "$publish_release" ]; then
+            publish_release='true'
+          fi
+
+          case "$prerelease" in
+            true|false) ;;
+            *) echo "Invalid prerelease value: $prerelease" >&2; exit 1 ;;
+          esac
+          case "$publish_release" in
+            true|false) ;;
+            *) echo "Invalid publish_release value: $publish_release" >&2; exit 1 ;;
+          esac
 
           variants=$(printf '%s' "$variants" | tr ',;' '  ' | xargs)
+          [ -n "$variants" ] || { echo 'No variants selected.' >&2; exit 1; }
           for variant in $variants; do
             case "$variant" in
               base|plus|bypass) ;;
-              *)
-                echo "Unsupported variant: $variant" >&2
-                echo 'Supported variants: base plus bypass' >&2
-                exit 1
-                ;;
+              *) echo "Unsupported variant: $variant" >&2; exit 1 ;;
             esac
           done
+
           for item in \
             "base:$base_rootfs_partsize" \
             "plus:$plus_rootfs_partsize" \
@@ -138,11 +133,12 @@ jobs:
             variant_name="${item%%:*}"
             partsize="${item#*:}"
             case "$partsize" in
-              ''|*[!0-9]*)
-                echo "Invalid rootfs partsize for ${variant_name}: ${partsize}" >&2
-                exit 1
-                ;;
+              ''|*[!0-9]*) echo "Invalid rootfs partsize for ${variant_name}: ${partsize}" >&2; exit 1 ;;
             esac
+            if [ "$partsize" -lt 1024 ]; then
+              echo "Invalid rootfs partsize for ${variant_name}: ${partsize}. ophub packer requires at least 1024 MiB." >&2
+              exit 1
+            fi
           done
 
           if [ -z "$version" ]; then
@@ -154,51 +150,83 @@ jobs:
             )
             version=$(printf '%s\n' "$versions" | tail -n 1)
           fi
+          [ -n "$version" ] || { echo 'Unable to resolve an ImmortalWrt release version.' >&2; exit 1; }
 
-          if [ -z "$version" ]; then
-            echo 'Unable to resolve an ImmortalWrt release version.' >&2
-            exit 1
-          fi
+          target_dash=${target//\//-}
+          release_url="$DOWNLOAD_BASE/$version/targets/$target"
 
-          target_path="$target"
-          target_dash=${target_path//\//-}
-          release_url="$DOWNLOAD_BASE/$version/targets/$target_path"
+          matrix=$(python3 - "$variants" "$base_rootfs_partsize" "$plus_rootfs_partsize" "$bypass_rootfs_partsize" <<'PY'
+          import json
+          import sys
+
+          variants = sys.argv[1].split()
+          sizes = {
+              'base': sys.argv[2],
+              'plus': sys.argv[3],
+              'bypass': sys.argv[4],
+          }
+          include = []
+          for variant in variants:
+              include.append({
+                  'variant': variant,
+                  'rootfs_partsize': sizes[variant],
+                  'suffix': '' if variant == 'base' else f'-{variant}',
+                  'openwrt_files': 'files/bypass' if variant == 'bypass' else 'false',
+              })
+          print(json.dumps({'include': include}, separators=(',', ':')))
+          PY
+          )
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "target=$target_path" >> "$GITHUB_OUTPUT"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
           echo "target_dash=$target_dash" >> "$GITHUB_OUTPUT"
-          echo "profile=$profile" >> "$GITHUB_OUTPUT"
-          echo "filesystem=$filesystem" >> "$GITHUB_OUTPUT"
-          echo "variants=$variants" >> "$GITHUB_OUTPUT"
+          echo "rootfs_profile=$rootfs_profile" >> "$GITHUB_OUTPUT"
+          echo "board=$board" >> "$GITHUB_OUTPUT"
           echo "release_url=$release_url" >> "$GITHUB_OUTPUT"
+          echo "variants=$variants" >> "$GITHUB_OUTPUT"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "extra_packages=$extra_packages" >> "$GITHUB_OUTPUT"
+          echo "publish_release=$publish_release" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "base_rootfs_partsize=$base_rootfs_partsize" >> "$GITHUB_OUTPUT"
           echo "plus_rootfs_partsize=$plus_rootfs_partsize" >> "$GITHUB_OUTPUT"
           echo "bypass_rootfs_partsize=$bypass_rootfs_partsize" >> "$GITHUB_OUTPUT"
 
-      - name: Validate official profile
-        shell: bash
+  build:
+    name: Build ${{ matrix.variant }}
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install host tools
         env:
-          RELEASE_URL: ${{ steps.vars.outputs.release_url }}
-          PROFILE: ${{ steps.vars.outputs.profile }}
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          set -euo pipefail
-          curl -fsSL "$RELEASE_URL/profiles.json" -o profiles.json
-          if ! jq -e --arg profile "$PROFILE" '.profiles[$profile]' profiles.json > /dev/null; then
-            echo "Profile '$PROFILE' was not found in $RELEASE_URL/profiles.json" >&2
-            echo 'Available profiles:' >&2
-            jq -r '.profiles | keys[]' profiles.json >&2
-            exit 1
-          fi
-          jq -r --arg profile "$PROFILE" '.profiles[$profile]' profiles.json
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ack antlr3 aria2 asciidoc autoconf automake autopoint binutils bison btrfs-progs \
+            build-essential bzip2 ca-certificates ccache clang cmake coreutils cpio curl \
+            device-tree-compiler fakeroot flex gawk gettext git gzip haveged help2man intltool \
+            jq libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev \
+            libncurses-dev libpython3-dev libreadline-dev libssl-dev libtool libyaml-dev libz-dev \
+            lrzsz msmtp nano ninja-build ntpdate p7zip p7zip-full parted patch pigz pkgconf \
+            python3 python3-cryptography python3-docutils python3-pip python3-ply python3-pyelftools \
+            python3-requests python3-setuptools qemu-utils quilt re2c rsync scons sharutils \
+            squashfs-tools subversion swig tar texinfo unzip vim wget xxd xz-utils zip zlib1g-dev zstd
+          sudo timedatectl set-timezone Asia/Shanghai
 
       - name: Download and verify ImageBuilder
         shell: bash
         env:
-          VERSION: ${{ steps.vars.outputs.version }}
-          TARGET_DASH: ${{ steps.vars.outputs.target_dash }}
-          RELEASE_URL: ${{ steps.vars.outputs.release_url }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TARGET_DASH: ${{ needs.prepare.outputs.target_dash }}
+          RELEASE_URL: ${{ needs.prepare.outputs.release_url }}
         run: |
           set -euo pipefail
           imagebuilder="immortalwrt-imagebuilder-${VERSION}-${TARGET_DASH}.Linux-x86_64.tar.zst"
@@ -209,18 +237,12 @@ jobs:
           tar --zstd -xf "$imagebuilder"
           mv "${imagebuilder%.tar.zst}" imagebuilder
 
-      - name: Build variants
+      - name: Build ImmortalWrt rootfs
         shell: bash
         env:
-          VERSION: ${{ steps.vars.outputs.version }}
-          TARGET_DASH: ${{ steps.vars.outputs.target_dash }}
-          PROFILE: ${{ steps.vars.outputs.profile }}
-          FILESYSTEM: ${{ steps.vars.outputs.filesystem }}
-          VARIANTS: ${{ steps.vars.outputs.variants }}
-          EXTRA_PACKAGES: ${{ steps.vars.outputs.extra_packages }}
-          BASE_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.base_rootfs_partsize }}
-          PLUS_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.plus_rootfs_partsize }}
-          BYPASS_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.bypass_rootfs_partsize }}
+          VARIANT: ${{ matrix.variant }}
+          EXTRA_PACKAGES: ${{ needs.prepare.outputs.extra_packages }}
+          ROOTFS_PROFILE: ${{ needs.prepare.outputs.rootfs_profile }}
         run: |
           set -euo pipefail
 
@@ -231,52 +253,17 @@ jobs:
             fi
           }
 
-          prepare_files() {
-            local variant="$1"
-            local dir="files-$variant"
-            rm -rf "$dir"
-            mkdir -p "$dir"
-            if [ -d ../files/common ]; then
-              rsync -a ../files/common/ "$dir/"
-            fi
-            if [ "$variant" = 'bypass' ] && [ -d ../files/bypass ]; then
-              rsync -a ../files/bypass/ "$dir/"
-            fi
-            find "$dir/etc/uci-defaults" -type f -exec chmod 0755 {} + 2>/dev/null || true
-            printf '%s' "$dir"
-          }
-
           variant_packages() {
             local variant="$1"
             local base_packages plus_packages bypass_packages
-            base_packages=$(read_packages ../packages/base.txt)
-            plus_packages=$(read_packages ../packages/plus.txt)
-            bypass_packages=$(read_packages ../packages/bypass.txt)
+            base_packages=$(read_packages packages/base.txt)
+            plus_packages=$(read_packages packages/plus.txt)
+            bypass_packages=$(read_packages packages/bypass.txt)
             case "$variant" in
-              base)
-                printf '%s' "$base_packages"
-                ;;
-              plus)
-                printf '%s %s %s' "$base_packages" "$plus_packages" "$EXTRA_PACKAGES"
-                ;;
-              bypass)
-                printf '%s %s %s %s' "$base_packages" "$plus_packages" "$bypass_packages" "$EXTRA_PACKAGES"
-                ;;
+              base) printf '%s' "$base_packages" ;;
+              plus) printf '%s %s %s' "$base_packages" "$plus_packages" "$EXTRA_PACKAGES" ;;
+              bypass) printf '%s %s %s %s' "$base_packages" "$plus_packages" "$bypass_packages" "$EXTRA_PACKAGES" ;;
             esac | xargs
-          }
-
-          variant_rootfs_partsize() {
-            case "$1" in
-              base)
-                printf '%s' "$BASE_ROOTFS_PARTSIZE"
-                ;;
-              plus)
-                printf '%s' "$PLUS_ROOTFS_PARTSIZE"
-                ;;
-              bypass)
-                printf '%s' "$BYPASS_ROOTFS_PARTSIZE"
-                ;;
-            esac
           }
 
           variant_needs_apk_force_overwrite() {
@@ -294,137 +281,111 @@ jobs:
               echo 'Unable to find ImageBuilder APK install command to patch.' >&2
               exit 1
             fi
-            if [ ! -f Makefile.apk-force-overwrite.bak ]; then
-              cp Makefile Makefile.apk-force-overwrite.bak
-            fi
+            cp Makefile Makefile.apk-force-overwrite.bak
             sed -i 's#$(APK) add --arch $(ARCH_PACKAGES) --no-scripts $(BUILD_PACKAGES)#$(APK) add --force-overwrite --arch $(ARCH_PACKAGES) --no-scripts $(BUILD_PACKAGES)#' Makefile
             echo 'Enabled apk --force-overwrite for this variant.'
           }
 
-          disable_apk_force_overwrite() {
-            if [ -f Makefile.apk-force-overwrite.bak ]; then
-              cp Makefile.apk-force-overwrite.bak Makefile
-            fi
-          }
-
-          variant_filename() {
-            local variant="$1"
-            local filename="$2"
-            if [ "$variant" = 'base' ]; then
-              printf '%s' "$filename"
-              return 0
-            fi
-            case "$filename" in
-              *.img.gz)
-                printf '%s-%s.img.gz' "${filename%.img.gz}" "$variant"
-                ;;
-              *)
-                printf '%s-%s.%s' "${filename%.*}" "$variant" "${filename##*.}"
-                ;;
-            esac
-          }
-
-          verify_rootfs_partsize() {
-            local variant="$1"
-            local image="$2"
-            local expected="$3"
-            python3 - "$variant" "$image" "$expected" <<'PY'
-          import gzip
-          import struct
-          import sys
-
-          variant, image, expected_text = sys.argv[1:]
-          expected = int(expected_text)
-          with gzip.open(image, 'rb') as image_file:
-              mbr = image_file.read(512)
-
-          if len(mbr) != 512 or mbr[510:512] != b'\x55\xaa':
-              raise SystemExit(f'{variant}: {image}: missing MBR signature')
-
-          rootfs_entry = mbr[446 + 16:446 + 32]
-          start_lba = struct.unpack_from('<I', rootfs_entry, 8)[0]
-          sectors = struct.unpack_from('<I', rootfs_entry, 12)[0]
-          if start_lba == 0 or sectors == 0:
-              raise SystemExit(f'{variant}: {image}: missing rootfs partition entry')
-
-          actual = sectors * 512 // 1024 // 1024
-          if actual != expected:
-              raise SystemExit(
-                  f'{variant}: expected rootfs partition {expected} MiB, got {actual} MiB ({sectors} sectors)'
-              )
-
-          print(f'{variant}: verified rootfs partition {actual} MiB in {image}')
-          PY
-          }
-
-          mkdir -p release
+          packages=$(variant_packages "$VARIANT")
           cd imagebuilder
+          if variant_needs_apk_force_overwrite "$packages"; then
+            enable_apk_force_overwrite
+          fi
 
-          for variant in $VARIANTS; do
-            echo "Building variant: $variant"
-            rm -rf bin/targets
+          make image PROFILE="$ROOTFS_PROFILE" PACKAGES="$packages"
 
-            files_dir=$(prepare_files "$variant")
-            packages=$(variant_packages "$variant")
-            rootfs_partsize=$(variant_rootfs_partsize "$variant")
-            if variant_needs_apk_force_overwrite "$packages"; then
-              enable_apk_force_overwrite
-            else
-              disable_apk_force_overwrite
-            fi
-            echo "Rootfs partsize: ${rootfs_partsize} MiB"
-            make image PROFILE="$PROFILE" FILES="$files_dir" PACKAGES="$packages" ROOTFS_PARTSIZE="$rootfs_partsize"
+          mkdir -p ../rootfs
+          rootfs_file=$(find bin/targets -type f -name '*rootfs.tar.gz' | head -n 1)
+          [ -n "$rootfs_file" ] || { echo 'No rootfs.tar.gz was generated.' >&2; find bin/targets -type f >&2; exit 1; }
+          cp -v "$rootfs_file" "../rootfs/immortalwrt-oect-${VARIANT}-rootfs.tar.gz"
+          find bin/targets -type f \( -name '*.manifest' -o -name '*.buildinfo' -o -name 'profiles.json' \) -exec cp -v {} ../rootfs/ \;
 
-            image_count=$(find bin/targets -type f -name "*${PROFILE}*${FILESYSTEM}*.img.gz" | wc -l)
-            if [ "$image_count" -eq 0 ]; then
-              echo "No ${FILESYSTEM} image was generated for profile ${PROFILE} variant ${variant}." >&2
-              find bin/targets -type f >&2
-              exit 1
-            fi
-            while IFS= read -r image; do
-              verify_rootfs_partsize "$variant" "$image" "$rootfs_partsize"
-            done < <(find bin/targets -type f -name "*${PROFILE}*${FILESYSTEM}*.img.gz")
+      - name: Package OEC-turbo image
+        uses: ophub/amlogic-s9xxx-openwrt@main
+        with:
+          openwrt_path: rootfs/immortalwrt-oect-${{ matrix.variant }}-rootfs.tar.gz
+          openwrt_board: ${{ needs.prepare.outputs.board }}
+          openwrt_kernel: ${{ env.OECT_KERNEL }}
+          auto_kernel: ${{ env.OECT_AUTO_KERNEL }}
+          kernel_repo: ${{ env.OECT_KERNEL_REPO }}
+          kernel_usage: ${{ env.OECT_KERNEL_USAGE }}
+          openwrt_size: 384/${{ matrix.rootfs_partsize }}
+          openwrt_ip: '192.168.1.1'
+          openwrt_files: ${{ matrix.openwrt_files }}
+          builder_name: ${{ env.OECT_BUILDER_NAME }}
 
-            find bin/targets -type f \
-              \( -name "*${PROFILE}*${FILESYSTEM}*" -o -name '*.manifest' -o -name '*.buildinfo' -o -name 'profiles.json' \) \
-              -print0 |
-              while IFS= read -r -d '' src; do
-                filename=$(basename "$src")
-                dest=$(variant_filename "$variant" "$filename")
-                cp -v "$src" "../release/$dest"
-              done
-          done
+      - name: Collect variant artifacts
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          set -euo pipefail
+          mkdir -p release
 
-          cd ../release
-          sha256sum * > sha256sums.txt
+          output_path="${PACKAGED_OUTPUTPATH:-}"
+          [ -n "$output_path" ] || { echo 'PACKAGED_OUTPUTPATH is empty.' >&2; exit 1; }
+          find "$output_path" -maxdepth 1 -type f -print
 
-      - name: Prepare release metadata
+          while IFS= read -r src; do
+            filename=$(basename "$src")
+            dest="${filename%.img.gz}${SUFFIX}.img.gz"
+            cp -v "$src" "release/$dest"
+          done < <(find "$output_path" -maxdepth 1 -type f -name '*.img.gz')
+
+          cp -v "rootfs/immortalwrt-oect-${VARIANT}-rootfs.tar.gz" "release/immortalwrt-oect-rootfs${SUFFIX}.tar.gz"
+          sha256sum release/* > release/sha256sums-${VARIANT}.txt
+
+      - name: Upload variant artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-oect-${{ needs.prepare.outputs.version }}-${{ matrix.variant }}
+          path: release/*
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-24.04
+    if: always() && needs.prepare.result == 'success' && needs.build.result == 'success'
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
         id: artifacts
         shell: bash
         env:
-          VERSION: ${{ steps.vars.outputs.version }}
-          TARGET_DASH: ${{ steps.vars.outputs.target_dash }}
-          PROFILE: ${{ steps.vars.outputs.profile }}
-          FILESYSTEM: ${{ steps.vars.outputs.filesystem }}
-          VARIANTS: ${{ steps.vars.outputs.variants }}
-          BASE_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.base_rootfs_partsize }}
-          PLUS_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.plus_rootfs_partsize }}
-          BYPASS_ROOTFS_PARTSIZE: ${{ steps.vars.outputs.bypass_rootfs_partsize }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          VARIANTS: ${{ needs.prepare.outputs.variants }}
+          BASE_ROOTFS_PARTSIZE: ${{ needs.prepare.outputs.base_rootfs_partsize }}
+          PLUS_ROOTFS_PARTSIZE: ${{ needs.prepare.outputs.plus_rootfs_partsize }}
+          BYPASS_ROOTFS_PARTSIZE: ${{ needs.prepare.outputs.bypass_rootfs_partsize }}
+          BOARD: ${{ needs.prepare.outputs.board }}
         run: |
           set -euo pipefail
-          tag="immortalwrt-${VERSION}-${TARGET_DASH}-${PROFILE}-${FILESYSTEM}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "title=ImmortalWrt ${VERSION} ${PROFILE} (${FILESYSTEM})" >> "$GITHUB_OUTPUT"
+          mkdir -p release
+          find artifacts -type f -exec cp -v {} release/ \;
+          rm -f release/sha256sums.txt release/sha256sums-*.txt
+
           printf '%s\n' "$VARIANTS" > release/variants.txt
           cat > release/rootfs-partsize.txt <<EOF
           base=${BASE_ROOTFS_PARTSIZE}MiB
           plus=${PLUS_ROOTFS_PARTSIZE}MiB
           bypass=${BYPASS_ROOTFS_PARTSIZE}MiB
           EOF
-          rm -f release/sha256sums.txt
           (cd release && sha256sum * > sha256sums.txt)
 
-      - name: Upload workflow artifact
+          release_date=$(TZ=Asia/Shanghai date +%Y.%m.%d)
+          tag="immortalwrt-${VERSION}-oec-turbo-${BOARD}-${release_date}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "title=ImmortalWrt ${VERSION} OEC-turbo ${BOARD} ${release_date}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload combined artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.artifacts.outputs.tag }}
@@ -432,28 +393,28 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
+        if: needs.prepare.outputs.publish_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.artifacts.outputs.tag }}
           name: ${{ steps.artifacts.outputs.title }}
-          prerelease: ${{ steps.vars.outputs.prerelease }}
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
           make_latest: true
           overwrite_files: true
           files: release/*
           body: |
-            基于官方 ImmortalWrt ImageBuilder 自动构建。
+            基于官方 ImmortalWrt `${{ needs.prepare.outputs.version }}` 的 `armsr/armv8 generic` rootfs，并使用 ophub/unifreq 打包链路生成 `wxy-oect` 设备镜像。
 
-            - Version: `${{ steps.vars.outputs.version }}`
-            - Target: `${{ steps.vars.outputs.target }}`
-            - Profile: `${{ steps.vars.outputs.profile }}`
-            - Filesystem: `${{ steps.vars.outputs.filesystem }}`
-            - Variants: `${{ steps.vars.outputs.variants }}`
-            - Rootfs partsize: base `${{ steps.vars.outputs.base_rootfs_partsize }} MiB`, plus `${{ steps.vars.outputs.plus_rootfs_partsize }} MiB`, bypass `${{ steps.vars.outputs.bypass_rootfs_partsize }} MiB`
+            - Board: `${{ needs.prepare.outputs.board }}`
+            - Rootfs target: `armsr/armv8 generic`
+            - Kernel: `rk35xx/6.1.y` latest from `ophub/kernel`
+            - Variants: `${{ needs.prepare.outputs.variants }}`
+            - Rootfs partition: base `${{ needs.prepare.outputs.base_rootfs_partsize }} MiB`, plus `${{ needs.prepare.outputs.plus_rootfs_partsize }} MiB`, bypass `${{ needs.prepare.outputs.bypass_rootfs_partsize }} MiB`
 
             变体说明：
 
-            - 标准包：不带特殊后缀，官方精简构建，不添加常用依赖，不写入旁路由默认配置，rootfs 分区保持 `${{ steps.vars.outputs.base_rootfs_partsize }} MiB`。
-            - `*-plus.*`：在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages`，rootfs 分区为 `${{ steps.vars.outputs.plus_rootfs_partsize }} MiB`。
-            - `*-bypass.*`：在 `plus` 基础上追加 `files/bypass` 下的旁路由首启配置，不修改官方默认 root 密码，rootfs 分区为 `${{ steps.vars.outputs.bypass_rootfs_partsize }} MiB`。这是自用旁路由包，其他人请使用标准包或 `*-plus.*`。
+            - 标准包：不带特殊后缀，使用官方 ImmortalWrt rootfs 默认包，不写入旁路由配置。
+            - `*-plus.*`：在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages`。
+            - `*-bypass.*`：在 `plus` 基础上追加 `files/bypass` 下的旁路由首启配置，仅供自用，其他人请使用标准包或 `*-plus.*`。
 
             校验文件：`sha256sums.txt`。分区配置记录：`rootfs-partsize.txt`。
