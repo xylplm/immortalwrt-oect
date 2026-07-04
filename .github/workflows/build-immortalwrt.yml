@@ -469,7 +469,8 @@ jobs:
           fi
 
       - name: Package OEC-turbo image
-        uses: ophub/amlogic-s9xxx-openwrt@main
+        # Pin the OEC-turbo packer to the last verified commit. Update intentionally after testing.
+        uses: ophub/amlogic-s9xxx-openwrt@55df72083e5dce7937b2465974f7d28c3500ae1d
         with:
           openwrt_path: rootfs/immortalwrt-oect-${{ matrix.variant }}-rootfs.tar.gz
           openwrt_board: ${{ needs.prepare.outputs.board }}
