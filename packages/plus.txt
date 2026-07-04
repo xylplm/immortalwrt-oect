@@ -4,3 +4,6 @@ luci-theme-argon
 luci-app-argon-config
 luci-app-wol
 luci-app-openvpn-server
+soho-sealhelper
+soho
+luci-app-soho

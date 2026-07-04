@@ -14,5 +14,6 @@ ensure_line "/etc/openvpn/" "$SYSUPGRADE_FILE"
 ensure_line "/etc/easy-rsa/pki/" "$SYSUPGRADE_FILE"
 ensure_line "/etc/easy-rsa/vars-server" "$SYSUPGRADE_FILE"
 ensure_line "/etc/openvpn-addon.conf" "$SYSUPGRADE_FILE"
+ensure_line "/etc/soho/" "$SYSUPGRADE_FILE"
 
 exit 0

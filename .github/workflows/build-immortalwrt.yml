@@ -290,8 +290,71 @@ jobs:
             echo 'Enabled apk --force-overwrite for this variant.'
           }
 
+          ensure_local_apk_repository() {
+            if ! grep -qE '(^APK:=|\$\(APK\))' Makefile; then
+              echo 'Local APK packages require an APK-based ImageBuilder.' >&2
+              exit 1
+            fi
+            if grep -qF -- '--repository $(PACKAGE_DIR)/packages.adb' Makefile; then
+              return 0
+            fi
+            if ! grep -qF -- '--repositories-file $(TOPDIR)/repositories' Makefile; then
+              echo 'Unable to find ImageBuilder APK repository configuration to patch.' >&2
+              exit 1
+            fi
+
+            local tmp_makefile
+            tmp_makefile=$(mktemp)
+            awk '
+              {
+                print
+                if ($0 ~ /--repositories-file \$\(TOPDIR\)\/repositories/) {
+                  print "\t--repository $(PACKAGE_DIR)/packages.adb \\"
+                  patched = 1
+                }
+              }
+              END { if (!patched) exit 1 }
+            ' Makefile > "$tmp_makefile" || {
+              rm -f "$tmp_makefile"
+              echo 'Unable to patch ImageBuilder local APK repository support.' >&2
+              exit 1
+            }
+            mv "$tmp_makefile" Makefile
+            echo 'Patched ImageBuilder local APK repository support.'
+          }
+
+          stage_local_apks() {
+            local requested_packages="$1"
+            case " $requested_packages " in
+              *' soho-sealhelper '*|*' soho '*|*' luci-app-soho '*) ;;
+              *) return 0 ;;
+            esac
+
+            local local_apk_dir="../packages/local-apk"
+            [ -d "$local_apk_dir" ] || { echo "Local APK directory not found: $local_apk_dir" >&2; exit 1; }
+
+            local arch_packages
+            arch_packages=$(sed -n 's/^ARCH_PACKAGES:=//p' Makefile | head -n 1 | xargs)
+            [ -n "$arch_packages" ] || { echo 'Unable to resolve ImageBuilder ARCH_PACKAGES.' >&2; exit 1; }
+
+            mkdir -p packages
+            shopt -s nullglob
+            local luci_soho_apks=("$local_apk_dir"/luci-app-soho-*.apk)
+            local soho_apks=("$local_apk_dir"/soho_*_noarch.apk)
+            local sealhelper_apks=("$local_apk_dir"/soho-sealhelper_*_"${arch_packages}".apk)
+            shopt -u nullglob
+
+            [ "${#luci_soho_apks[@]}" -eq 1 ] || { echo "Expected exactly one luci-app-soho APK, found ${#luci_soho_apks[@]}." >&2; exit 1; }
+            [ "${#soho_apks[@]}" -eq 1 ] || { echo "Expected exactly one noarch soho APK, found ${#soho_apks[@]}." >&2; exit 1; }
+            [ "${#sealhelper_apks[@]}" -eq 1 ] || { echo "Expected exactly one soho-sealhelper APK for ${arch_packages}, found ${#sealhelper_apks[@]}." >&2; exit 1; }
+
+            cp -v "${luci_soho_apks[@]}" "${soho_apks[@]}" "${sealhelper_apks[@]}" packages/
+            ensure_local_apk_repository
+          }
+
           packages=$(variant_packages "$VARIANT")
           cd imagebuilder
+          stage_local_apks "$packages"
           if variant_needs_apk_force_overwrite "$packages"; then
             enable_apk_force_overwrite
           fi
@@ -406,6 +469,21 @@ jobs:
           }
           trap cleanup EXIT
 
+          package_installed() {
+            local package_name="$1"
+
+            if sudo test -f "$mount_dir/lib/apk/db/installed" &&
+              sudo grep -qxF "P:${package_name}" "$mount_dir/lib/apk/db/installed"; then
+              return 0
+            fi
+            if sudo test -f "$mount_dir/usr/lib/opkg/status" &&
+              sudo awk -v pkg="$package_name" '$1 == "Package:" && $2 == pkg { found = 1 } END { exit found ? 0 : 1 }' \
+                "$mount_dir/usr/lib/opkg/status"; then
+              return 0
+            fi
+            return 1
+          }
+
           for image_gz in "${images[@]}"; do
             image="$tmpdir/$(basename "${image_gz%.gz}")"
             mount_dir="$tmpdir/mnt"
@@ -446,6 +524,12 @@ jobs:
                 echo 'Plus sysupgrade preservation script leaked into base image.' >&2
                 exit 1
               fi
+              for local_package in soho-sealhelper soho luci-app-soho; do
+                if package_installed "$local_package"; then
+                  echo "Local Soho package leaked into base image: ${local_package}" >&2
+                  exit 1
+                fi
+              done
             else
               sudo test -f "$plus_sysupgrade_script" || { echo 'Plus sysupgrade preservation script is missing.' >&2; exit 1; }
               sudo test -x "$plus_sysupgrade_script" || { echo 'Plus sysupgrade preservation script is not executable.' >&2; exit 1; }
@@ -454,13 +538,21 @@ jobs:
                 /etc/openvpn/ \
                 /etc/easy-rsa/pki/ \
                 /etc/easy-rsa/vars-server \
-                /etc/openvpn-addon.conf; do
+                /etc/openvpn-addon.conf \
+                /etc/soho/; do
                 sudo grep -qF "$preserved_path" "$plus_sysupgrade_script" || {
                   echo "Plus sysupgrade preservation script is missing ${preserved_path}." >&2
                   exit 1
                 }
               done
               echo "Verified plus sysupgrade preservation script in ${VARIANT}: $(basename "$image_gz")"
+              for local_package in soho-sealhelper soho luci-app-soho; do
+                package_installed "$local_package" || {
+                  echo "Local Soho package is missing from ${VARIANT}: ${local_package}" >&2
+                  exit 1
+                }
+              done
+              echo "Verified local Soho packages in ${VARIANT}: $(basename "$image_gz")"
             fi
 
             if [ "$VARIANT" = 'bypass' ]; then
