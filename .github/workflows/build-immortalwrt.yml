@@ -347,6 +347,32 @@ jobs:
             printf '%s' "$arch_packages"
           }
 
+          canonical_apk_name() {
+            local source_file base base_no_ext package remainder version
+            source_file="$1"
+            base=$(basename "$source_file")
+            base_no_ext=${base%.apk}
+
+            if [ "$base_no_ext" != "$base" ] && [ "$base_no_ext" != "${base_no_ext#*_}" ]; then
+              package=${base_no_ext%%_*}
+              remainder=${base_no_ext#*_}
+              version=${remainder%%_*}
+              if [ -n "$package" ] && [ -n "$version" ]; then
+                printf '%s-%s.apk' "$package" "$version"
+                return 0
+              fi
+            fi
+
+            printf '%s' "$base"
+          }
+
+          stage_local_apk_file() {
+            local source_file target_name
+            source_file="$1"
+            target_name=$(canonical_apk_name "$source_file")
+            cp -v "$source_file" "packages/${target_name}"
+          }
+
           stage_local_apks() {
             local requested_packages="$1"
             case " $requested_packages " in
@@ -373,7 +399,9 @@ jobs:
             [ "${#soho_apks[@]}" -eq 1 ] || { echo "Expected exactly one noarch soho APK, found ${#soho_apks[@]}." >&2; exit 1; }
             [ "${#sealhelper_apks[@]}" -eq 1 ] || { echo "Expected exactly one soho-sealhelper APK for ${arch_packages}, found ${#sealhelper_apks[@]}." >&2; exit 1; }
 
-            cp -v "${luci_soho_apks[@]}" "${soho_apks[@]}" "${sealhelper_apks[@]}" packages/
+            stage_local_apk_file "${luci_soho_apks[0]}"
+            stage_local_apk_file "${soho_apks[0]}"
+            stage_local_apk_file "${sealhelper_apks[0]}"
             ensure_local_apk_repository
           }
 
