@@ -323,6 +323,30 @@ jobs:
             echo 'Patched ImageBuilder local APK repository support.'
           }
 
+          resolve_arch_packages() {
+            local arch_packages
+            arch_packages=''
+
+            if [ -f .config ]; then
+              arch_packages=$(sed -n -E 's/^CONFIG_TARGET_ARCH_PACKAGES="?([^"]*)"?$/\1/p' .config | head -n 1 | xargs)
+            fi
+
+            if [ -z "$arch_packages" ]; then
+              arch_packages=$(sed -n -E 's/^[[:space:]]*ARCH_PACKAGES[[:space:]]*:=[[:space:]]*([^$].*)$/\1/p' Makefile | head -n 1 | xargs)
+            fi
+
+            if [ -z "$arch_packages" ]; then
+              arch_packages=$(
+                make -s -f Makefile -pn 2>/dev/null |
+                  sed -n -E 's/^ARCH_PACKAGES[[:space:]]*:=[[:space:]]*([^$].*)$/\1/p' |
+                  head -n 1 |
+                  xargs
+              )
+            fi
+
+            printf '%s' "$arch_packages"
+          }
+
           stage_local_apks() {
             local requested_packages="$1"
             case " $requested_packages " in
@@ -334,8 +358,9 @@ jobs:
             [ -d "$local_apk_dir" ] || { echo "Local APK directory not found: $local_apk_dir" >&2; exit 1; }
 
             local arch_packages
-            arch_packages=$(sed -n 's/^ARCH_PACKAGES:=//p' Makefile | head -n 1 | xargs)
+            arch_packages=$(resolve_arch_packages)
             [ -n "$arch_packages" ] || { echo 'Unable to resolve ImageBuilder ARCH_PACKAGES.' >&2; exit 1; }
+            echo "Resolved ImageBuilder ARCH_PACKAGES: ${arch_packages}"
 
             mkdir -p packages
             shopt -s nullglob
