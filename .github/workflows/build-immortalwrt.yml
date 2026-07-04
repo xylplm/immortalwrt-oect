@@ -455,7 +455,7 @@ jobs:
                 /etc/easy-rsa/pki/ \
                 /etc/easy-rsa/vars-server \
                 /etc/openvpn-addon.conf; do
-                sudo grep -qxF "$preserved_path" "$plus_sysupgrade_script" || {
+                sudo grep -qF "$preserved_path" "$plus_sysupgrade_script" || {
                   echo "Plus sysupgrade preservation script is missing ${preserved_path}." >&2
                   exit 1
                 }
