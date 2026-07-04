@@ -659,7 +659,7 @@ jobs:
             cp -v "$src" "release/$dest"
           done < <(find "$output_path" -maxdepth 1 -type f -name '*.img.gz')
 
-          sha256sum release/* > release/sha256sums-${VARIANT}.txt
+          (cd release && sha256sum * > "sha256sums-${VARIANT}.txt")
 
       - name: Upload variant artifact
         uses: actions/upload-artifact@v7

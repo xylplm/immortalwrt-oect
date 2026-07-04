@@ -39,7 +39,7 @@
 
 常用包维护在 [packages/plus.txt](packages/plus.txt)，只属于旁路由模式的包维护在 [packages/bypass.txt](packages/bypass.txt)。
 
-其中 Soho 相关包来自本仓库的 [packages/local-apk](packages/local-apk) 本地 APK。`soho-sealhelper` 是架构相关包，当前构建使用匹配 `armsr/armv8` ImageBuilder 的 `aarch64_generic` 包；`soho` 和 `luci-app-soho` 使用通用 noarch 包。标准包不会内置这些本地 APK。
+其中 Soho 相关包来自本仓库的 [packages/local-apk](packages/local-apk) 本地 APK。`soho-sealhelper` 是架构相关包，当前构建使用匹配 `armsr/armv8` ImageBuilder 的 `aarch64_generic` 包；`soho` 和 `luci-app-soho` 使用通用包。标准包不会内置这些本地 APK。
 
 `plus` 和 `bypass` 每次构建都会重新内置这些包。通过 LuCI 固件升级页面勾选“保留配置”时，Argon 配置、WOL 配置、Soho UCI 配置和 OpenVPN UCI 配置会随 `/etc/config/` 保留；OpenVPN Server 的证书、补充配置和 Soho 的常见配置目录也会通过 [files/plus/etc/uci-defaults/97-plus-sysupgrade](files/plus/etc/uci-defaults/97-plus-sysupgrade) 写入保留清单，覆盖 `/etc/openvpn/`、`/etc/easy-rsa/pki/`、`/etc/easy-rsa/vars-server`、`/etc/openvpn-addon.conf` 和 `/etc/soho/`。
 
