@@ -320,6 +320,10 @@ jobs:
           rm -rf "$overlay"
           mkdir -p "$overlay"
 
+          if [ "$VARIANT" = 'plus' ] || [ "$VARIANT" = 'bypass' ]; then
+            cp -a files/plus/. "$overlay"/
+          fi
+
           if [ "$VARIANT" = 'bypass' ]; then
             cp -a files/bypass/. "$overlay"/
             cp -a files/lucky/. "$overlay"/
@@ -341,6 +345,8 @@ jobs:
             mkdir -p "$overlay/etc/rc.d"
             ln -s "../init.d/${LUCKY_SERVICE_NAME}" "$overlay/etc/rc.d/S99${LUCKY_SERVICE_NAME}"
 
+            echo "openwrt_files=$overlay" >> "$GITHUB_OUTPUT"
+          elif [ "$VARIANT" = 'plus' ]; then
             echo "openwrt_files=$overlay" >> "$GITHUB_OUTPUT"
           else
             echo 'openwrt_files=false' >> "$GITHUB_OUTPUT"
@@ -430,10 +436,33 @@ jobs:
             fi
 
             bypass_script="$mount_dir/etc/uci-defaults/99-bypass-router"
+            plus_sysupgrade_script="$mount_dir/etc/uci-defaults/97-plus-sysupgrade"
             lucky_dir="$mount_dir${LUCKY_INSTALL_DIR}"
             lucky_service="$mount_dir/etc/init.d/${LUCKY_SERVICE_NAME}"
             lucky_defaults="$mount_dir/etc/uci-defaults/98-lucky-daji"
             lucky_rc="$mount_dir/etc/rc.d/S99${LUCKY_SERVICE_NAME}"
+            if [ "$VARIANT" = 'base' ]; then
+              if sudo test -e "$plus_sysupgrade_script"; then
+                echo 'Plus sysupgrade preservation script leaked into base image.' >&2
+                exit 1
+              fi
+            else
+              sudo test -f "$plus_sysupgrade_script" || { echo 'Plus sysupgrade preservation script is missing.' >&2; exit 1; }
+              sudo test -x "$plus_sysupgrade_script" || { echo 'Plus sysupgrade preservation script is not executable.' >&2; exit 1; }
+              sudo /bin/sh -n "$plus_sysupgrade_script"
+              for preserved_path in \
+                /etc/openvpn/ \
+                /etc/easy-rsa/pki/ \
+                /etc/easy-rsa/vars-server \
+                /etc/openvpn-addon.conf; do
+                sudo grep -qxF "$preserved_path" "$plus_sysupgrade_script" || {
+                  echo "Plus sysupgrade preservation script is missing ${preserved_path}." >&2
+                  exit 1
+                }
+              done
+              echo "Verified plus sysupgrade preservation script in ${VARIANT}: $(basename "$image_gz")"
+            fi
+
             if [ "$VARIANT" = 'bypass' ]; then
               sudo test -f "$bypass_script" || { echo 'Bypass defaults script is missing from bypass image.' >&2; exit 1; }
               sudo test -x "$bypass_script" || { echo 'Bypass defaults script is not executable.' >&2; exit 1; }

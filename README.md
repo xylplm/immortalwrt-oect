@@ -36,6 +36,10 @@
 
 常用包维护在 [packages/plus.txt](packages/plus.txt)，只属于旁路由模式的包维护在 [packages/bypass.txt](packages/bypass.txt)。
 
+`plus` 和 `bypass` 每次构建都会重新内置这些包。通过 LuCI 固件升级页面勾选“保留配置”时，Argon 配置、WOL 配置和 OpenVPN UCI 配置会随 `/etc/config/` 保留；OpenVPN Server 的证书和补充配置也会通过 [files/plus/etc/uci-defaults/97-plus-sysupgrade](files/plus/etc/uci-defaults/97-plus-sysupgrade) 写入保留清单，覆盖 `/etc/openvpn/`、`/etc/easy-rsa/pki/`、`/etc/easy-rsa/vars-server` 和 `/etc/openvpn-addon.conf`。
+
+该补充脚本会在刷入包含它的固件后生效；如果从本仓库早期固件首次升级，且已经手动改过 `/etc/easy-rsa/vars-server` 或 `/etc/openvpn-addon.conf`，升级前请先手动备份这两个文件。
+
 ## Lucky 内置说明
 
 只有 `bypass` 固件内置 Lucky，标准包和 `plus` 都不内置。
