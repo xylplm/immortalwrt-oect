@@ -79,7 +79,7 @@ IMMORTALWRT_BYPASS_ROOTFS_PARTSIZE=4096
 
 `bypass` 面向维护者自用的 8G 存储设备，预留 4G rootfs 空间用于长期安装插件和保存运行数据。标准包和 `plus` 不假定用户设备一定有 8G 可用空间。
 
-## 旁路由配置
+## 旁路由配置（仅 Bypass 固件）
 
 旁路由首启脚本位于 [files/bypass/etc/uci-defaults/99-bypass-router](files/bypass/etc/uci-defaults/99-bypass-router)，只会进入 `bypass` 固件，不会进入标准包或 `plus` 包。
 
