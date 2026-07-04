@@ -5,7 +5,9 @@ release/
 profiles.json
 sha256sums
 *.tar.zst
+*.tar.gz
 *.img
 *.img.gz
 *.manifest
 *.buildinfo
+openwrt-files-*/

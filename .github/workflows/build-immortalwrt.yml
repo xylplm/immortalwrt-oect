@@ -43,6 +43,10 @@ env:
   OECT_KERNEL_REPO: ophub/kernel
   OECT_KERNEL_USAGE: stable
   OECT_BUILDER_NAME: xylplm
+  LUCKY_PACKAGE_URL: https://release.66666.host/v3.0.0beta6/3.0.0_xiaojv_waf/lucky_3.0.0_Linux_arm64_xiaojv_waf.tar.gz
+  LUCKY_PACKAGE_SHA256: d5acbfbf0778f2ba051acf347484e1b67b00ad6b63d4336ae3cd79823f882573
+  LUCKY_INSTALL_DIR: /etc/lucky.daji
+  LUCKY_SERVICE_NAME: lucky.daji
 
 jobs:
   prepare:
@@ -172,7 +176,6 @@ jobs:
                   'variant': variant,
                   'rootfs_partsize': sizes[variant],
                   'suffix': '' if variant == 'base' else f'-{variant}',
-                  'openwrt_files': 'files/bypass' if variant == 'bypass' else 'false',
               })
           print(json.dumps({'include': include}, separators=(',', ':')))
           PY
@@ -301,6 +304,48 @@ jobs:
           cp -v "$rootfs_file" "../rootfs/immortalwrt-oect-${VARIANT}-rootfs.tar.gz"
           find bin/targets -type f \( -name '*.manifest' -o -name '*.buildinfo' -o -name 'profiles.json' \) -exec cp -v {} ../rootfs/ \;
 
+      - name: Prepare custom OpenWrt files
+        id: custom_files
+        shell: bash
+        env:
+          VARIANT: ${{ matrix.variant }}
+          LUCKY_PACKAGE_URL: ${{ env.LUCKY_PACKAGE_URL }}
+          LUCKY_PACKAGE_SHA256: ${{ env.LUCKY_PACKAGE_SHA256 }}
+          LUCKY_INSTALL_DIR: ${{ env.LUCKY_INSTALL_DIR }}
+          LUCKY_SERVICE_NAME: ${{ env.LUCKY_SERVICE_NAME }}
+        run: |
+          set -euo pipefail
+
+          overlay="openwrt-files-${VARIANT}"
+          rm -rf "$overlay"
+          mkdir -p "$overlay"
+
+          if [ "$VARIANT" = 'bypass' ]; then
+            cp -a files/bypass/. "$overlay"/
+            cp -a files/lucky/. "$overlay"/
+
+            lucky_tmp="$(mktemp -d)"
+            trap 'rm -rf "$lucky_tmp"' EXIT
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 --connect-timeout 30 --max-time 300 \
+              "$LUCKY_PACKAGE_URL" -o "$lucky_tmp/lucky.tar.gz"
+            printf '%s  %s\n' "$LUCKY_PACKAGE_SHA256" "$lucky_tmp/lucky.tar.gz" | sha256sum -c -
+
+            lucky_dir="${overlay}${LUCKY_INSTALL_DIR}"
+            mkdir -p "$lucky_dir"
+            tar -xzf "$lucky_tmp/lucky.tar.gz" -C "$lucky_dir"
+            test -x "$lucky_dir/lucky" || chmod 0755 "$lucky_dir/lucky"
+            if [ -d "$lucky_dir/scripts" ]; then
+              find "$lucky_dir/scripts" -type f -exec chmod 0755 {} +
+            fi
+
+            mkdir -p "$overlay/etc/rc.d"
+            ln -s "../init.d/${LUCKY_SERVICE_NAME}" "$overlay/etc/rc.d/S99${LUCKY_SERVICE_NAME}"
+
+            echo "openwrt_files=$overlay" >> "$GITHUB_OUTPUT"
+          else
+            echo 'openwrt_files=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Package OEC-turbo image
         uses: ophub/amlogic-s9xxx-openwrt@main
         with:
@@ -312,13 +357,15 @@ jobs:
           kernel_usage: ${{ env.OECT_KERNEL_USAGE }}
           openwrt_size: 384/${{ matrix.rootfs_partsize }}
           openwrt_ip: '192.168.1.1'
-          openwrt_files: ${{ matrix.openwrt_files }}
+          openwrt_files: ${{ steps.custom_files.outputs.openwrt_files }}
           builder_name: ${{ env.OECT_BUILDER_NAME }}
 
       - name: Verify packaged image defaults
         shell: bash
         env:
           VARIANT: ${{ matrix.variant }}
+          LUCKY_INSTALL_DIR: ${{ env.LUCKY_INSTALL_DIR }}
+          LUCKY_SERVICE_NAME: ${{ env.LUCKY_SERVICE_NAME }}
         run: |
           set -euo pipefail
 
@@ -383,14 +430,30 @@ jobs:
             fi
 
             bypass_script="$mount_dir/etc/uci-defaults/99-bypass-router"
+            lucky_dir="$mount_dir${LUCKY_INSTALL_DIR}"
+            lucky_service="$mount_dir/etc/init.d/${LUCKY_SERVICE_NAME}"
+            lucky_defaults="$mount_dir/etc/uci-defaults/98-lucky-daji"
+            lucky_rc="$mount_dir/etc/rc.d/S99${LUCKY_SERVICE_NAME}"
             if [ "$VARIANT" = 'bypass' ]; then
               sudo test -f "$bypass_script" || { echo 'Bypass defaults script is missing from bypass image.' >&2; exit 1; }
               sudo test -x "$bypass_script" || { echo 'Bypass defaults script is not executable.' >&2; exit 1; }
               sudo /bin/sh -n "$bypass_script"
               echo "Verified bypass defaults script is present and executable: $(basename "$image_gz")"
+
+              sudo test -x "$lucky_dir/lucky" || { echo 'Lucky binary is missing or not executable in bypass image.' >&2; exit 1; }
+              sudo test -x "$lucky_service" || { echo 'Lucky init script is missing or not executable in bypass image.' >&2; exit 1; }
+              sudo test -x "$lucky_defaults" || { echo 'Lucky first-boot defaults script is missing or not executable in bypass image.' >&2; exit 1; }
+              sudo test -L "$lucky_rc" || { echo 'Lucky rc.d autostart symlink is missing in bypass image.' >&2; exit 1; }
+              sudo /bin/sh -n "$lucky_service"
+              sudo /bin/sh -n "$lucky_defaults"
+              echo "Verified Lucky is present only in bypass: $(basename "$image_gz")"
             else
               if sudo test -e "$bypass_script"; then
                 echo 'Bypass defaults script leaked into a non-bypass image.' >&2
+                exit 1
+              fi
+              if sudo test -e "$lucky_dir" || sudo test -e "$lucky_service" || sudo test -e "$lucky_defaults"; then
+                echo 'Lucky files leaked into a non-bypass image.' >&2
                 exit 1
               fi
               echo "Verified no bypass defaults script in ${VARIANT}: $(basename "$image_gz")"
@@ -503,6 +566,6 @@ jobs:
 
             - 标准包：不带特殊后缀，使用官方 ImmortalWrt rootfs 默认包，不写入旁路由配置。
             - `*-plus.*`：在标准包基础上追加 `packages/plus.txt` 和手动输入的 `extra_packages`。
-            - `*-bypass.*`：在 `plus` 基础上追加 `files/bypass` 下的旁路由首启配置，仅供自用，其他人请使用标准包或 `*-plus.*`。
+            - `*-bypass.*`：在 `plus` 基础上追加 `files/bypass` 下的旁路由首启配置，并内置 Lucky 到 `/etc/lucky.daji`，仅供自用，其他人请使用标准包或 `*-plus.*`。
 
             校验文件：`sha256sums.txt`。分区配置记录：`rootfs-partsize.txt`。

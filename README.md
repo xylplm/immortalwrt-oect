@@ -19,7 +19,7 @@
 | --- | --- | --- | --- |
 | 无特殊后缀 | 标准包 | 1280 MiB | 官方 ImmortalWrt rootfs 默认包，不写入旁路由配置 |
 | `*-plus.img.gz` | 常用包 | 2048 MiB | 在标准包基础上追加 `packages/plus.txt` |
-| `*-bypass.img.gz` | 自用旁路由包 | 4096 MiB | 在 `plus` 基础上追加 `files/bypass` 首启配置 |
+| `*-bypass.img.gz` | 自用旁路由包 | 4096 MiB | 在 `plus` 基础上追加旁路由首启配置和 Lucky |
 
 `bypass` 是维护者自用旁路由配置包，会把管理地址改为 `10.11.11.3/24`。其他用户请使用标准包或 `plus` 包，不要刷 `bypass` 包。
 
@@ -27,7 +27,7 @@
 
 标准包保持精简，不额外添加常用包。
 
-`plus` 和 `bypass` 当前额外内置：
+`plus` 和 `bypass` 当前通过包列表额外内置：
 
 - `luci-theme-argon`
 - `luci-app-argon-config`
@@ -35,6 +35,22 @@
 - `luci-app-openvpn-server`
 
 常用包维护在 [packages/plus.txt](packages/plus.txt)，只属于旁路由模式的包维护在 [packages/bypass.txt](packages/bypass.txt)。
+
+## Lucky 内置说明
+
+只有 `bypass` 固件内置 Lucky，标准包和 `plus` 都不内置。
+
+`bypass` 内置方式尽量贴近 Lucky 官方自动脚本：
+
+- 安装目录：`/etc/lucky.daji`
+- 服务脚本：`/etc/init.d/lucky.daji`
+- 启动方式：`lucky -c /etc/lucky.daji/lucky.conf`
+- 默认后台地址：`http://10.11.11.3:16601/`
+- 默认账号和密码：`666` / `666`
+
+构建时会从官方发布地址下载指定版本的 arm64 包并校验 SHA256。`/etc/lucky.daji/` 会写入 `/etc/sysupgrade.conf`，通过 LuCI 固件升级页面勾选“保留配置”时，Lucky 配置和后台升级后的 Lucky 文件会一起保留。
+
+如果通过 RKDevTool 重新整盘刷写 `.img`，设备存储会被覆盖，Lucky 数据不会自动保留；整盘重刷前请先在 Lucky 后台备份配置。
 
 ## 默认登录信息
 

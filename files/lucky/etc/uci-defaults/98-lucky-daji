@@ -1,0 +1,25 @@
+#!/bin/sh
+
+LUCKY_DIR="/etc/lucky.daji"
+PROFILE_FILE="/etc/profile"
+SYSUPGRADE_FILE="/etc/sysupgrade.conf"
+
+ensure_line() {
+    local line="$1"
+    local file="$2"
+
+    touch "$file"
+    grep -qxF "$line" "$file" 2>/dev/null || echo "$line" >> "$file"
+}
+
+sed -i '/^alias lucky=/d' "$PROFILE_FILE" 2>/dev/null || true
+sed -i '/^export luckydir=/d' "$PROFILE_FILE" 2>/dev/null || true
+ensure_line "alias lucky=\"$LUCKY_DIR/lucky\"" "$PROFILE_FILE"
+ensure_line "export luckydir=\"$LUCKY_DIR\"" "$PROFILE_FILE"
+
+ensure_line "$LUCKY_DIR/" "$SYSUPGRADE_FILE"
+
+chmod 0755 "$LUCKY_DIR/lucky" 2>/dev/null || true
+chmod 0755 /etc/init.d/lucky.daji 2>/dev/null || true
+
+exit 0
