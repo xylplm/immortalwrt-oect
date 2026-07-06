@@ -111,11 +111,11 @@ GitHub Actions 每周五北京时间 09:20 自动运行一次，并发布到 Rel
 
 也可以在 Actions 页面手动运行 **Build ImmortalWrt OEC-turbo**：
 
-- `version`：留空时自动使用 ImmortalWrt 最新稳定版本。
-- `variants`：默认 `all`，可填 `base`、`plus`、`bypass` 或空格/逗号分隔组合。
-- `extra_packages`：临时追加到 `plus` 和 `bypass` 的包。
-- `publish_release`：是否发布到 GitHub Releases。
-- `prerelease`：是否标记为预发布。
+- `version`：ImmortalWrt 发布版本；留空时自动使用最新稳定版。
+- `variants`：选择本次要构建的固件变体，默认“全部变体”。
+- `extra_packages`：临时追加到 `plus` 和 `bypass` 的软件包，多个包用空格分隔；一般留空。
+- `publish_release`：选择发布到 GitHub Releases，或只生成 Actions Artifacts。
+- `prerelease`：选择正式发布或标记为预发布。
 
 ## 刷机参考
 

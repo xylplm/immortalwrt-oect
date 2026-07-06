@@ -4,28 +4,42 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: ImmortalWrt release version. Leave empty to use the latest stable release.
+        description: ImmortalWrt 发布版本；留空时自动使用最新稳定版。
         required: false
         type: string
       variants:
-        description: 'Build variants: all, or a space/comma separated list of base plus bypass.'
+        description: 选择本次要构建的固件变体。
         required: false
-        default: all
-        type: string
+        default: 全部变体
+        type: choice
+        options:
+          - 全部变体
+          - 仅标准包
+          - 仅常用包
+          - 仅自用旁路由包
+          - 标准包 + 常用包
+          - 标准包 + 自用旁路由包
+          - 常用包 + 自用旁路由包
       extra_packages:
-        description: Extra packages appended to plus and bypass rootfs builds.
+        description: 临时追加到 plus 和 bypass 的软件包，多个包用空格分隔；一般留空。
         required: false
         type: string
       publish_release:
-        description: Publish build outputs to GitHub Releases.
+        description: 构建完成后是否发布到 GitHub Releases。
         required: false
-        default: true
-        type: boolean
+        default: 发布到 GitHub Releases
+        type: choice
+        options:
+          - 发布到 GitHub Releases
+          - 只生成 Actions Artifacts
       prerelease:
-        description: Mark the GitHub release as a prerelease.
+        description: Release 发布类型。
         required: false
-        default: false
-        type: boolean
+        default: 正式发布
+        type: choice
+        options:
+          - 正式发布
+          - 标记为预发布
   schedule:
     - cron: '20 1 * * 5'
 
@@ -93,6 +107,24 @@ jobs:
             # shellcheck disable=SC1091
             . config/build.env
           fi
+
+          case "$variants" in
+            '全部变体') variants='all' ;;
+            '仅标准包') variants='base' ;;
+            '仅常用包') variants='plus' ;;
+            '仅自用旁路由包') variants='bypass' ;;
+            '标准包 + 常用包') variants='base plus' ;;
+            '标准包 + 自用旁路由包') variants='base bypass' ;;
+            '常用包 + 自用旁路由包') variants='plus bypass' ;;
+          esac
+          case "$publish_release" in
+            '发布到 GitHub Releases') publish_release='true' ;;
+            '只生成 Actions Artifacts') publish_release='false' ;;
+          esac
+          case "$prerelease" in
+            '正式发布') prerelease='false' ;;
+            '标记为预发布') prerelease='true' ;;
+          esac
 
           target="${IMMORTALWRT_ROOTFS_TARGET:-armsr/armv8}"
           rootfs_profile="${IMMORTALWRT_ROOTFS_PROFILE:-generic}"
