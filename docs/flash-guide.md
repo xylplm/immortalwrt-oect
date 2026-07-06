@@ -8,29 +8,56 @@
 - Loader 文件：
   - [MiniLoaderAll.bin](https://github.com/ophub/u-boot/blob/main/u-boot/rockchip/wxy-oect/MiniLoaderAll.bin)
   - [rk356x-MiniLoaderAll.bin](https://github.com/ophub/u-boot/blob/main/u-boot/rockchip/wxy-oect/rk356x-MiniLoaderAll.bin)
+- Type-C 数据线、短接用镊子或金属针、按 `RESET` 孔用的卡针。
 - 拆机视频：[Bilibili BV1vdVzzsErB](https://www.bilibili.com/video/BV1vdVzzsErB/)
 - 拆机图文：[CSDN 文章](https://blog.csdn.net/John_Lenon/article/details/146461220)
 
-## 短接点和 Type-C 口
+## 进入刷机模式
 
-短接通常只在第一次从原厂系统刷入第三方系统时需要。后续再次刷机时，设备保持断电、不插外置电源，按住 `RESET` 孔后插入 Type-C 数据线，一般即可进入刷机模式。
+刷机前先确认设备断电，并且不要接外置电源。刷机过程由 Type-C 数据线供电即可。
 
-刷机过程全程不用接外置电源，Type-C 刷机线本身可以供电。注意要接盒子的 Type-C 口，不是普通 USB 口。
+Type-C 数据线要接盒子的 Type-C 刷机口，不是旁边的普通 USB 口。建议使用能传数据的 Type-C 线，充电线可能无法被电脑识别。
 
 ![OEC-turbo 短接点](images/oect-short-point.jpg)
 
-![OEC-turbo Type-C 口](images/oect-typec-port.jpg)
+![OEC-turbo Type-C 口和普通 USB 口](images/oect-typec-port.jpg)
 
-![OEC-turbo 主板示意](images/oect-board-overview.jpg)
+![OEC-turbo Type-C 刷机插口](images/oect-board-overview.jpg)
+
+### 第一次从原厂系统刷入
+
+首次从原厂系统刷入第三方系统时，通常需要短接进入 `MaskROM` 模式。
+
+1. 拆开外壳，找到上图标出的两个短接点。
+2. 确认设备断电，不接外置电源。
+3. 用镊子或金属针短接这两个点，并保持不要松开。
+4. 在保持短接的同时，把 Type-C 数据线插入盒子的 Type-C 刷机口，另一端连接电脑。
+5. 电脑识别到新设备后再松开短接点，RKDevTool 通常会显示 `MaskROM`。
+
+如果电脑没有识别设备，先拔掉 Type-C，确认短接点接触稳定后再重复一次。
+
+### 后续再次刷机
+
+已经刷过 Armbian/OpenWrt 后，再次刷机通常不需要拆机短接，可以通过 `RESET` 孔进入刷机模式。
+
+1. 设备保持断电，不接外置电源。
+2. 用卡针按住 `RESET` 孔，不要松开。
+3. 保持按住 `RESET`，把 Type-C 数据线插入盒子的 Type-C 刷机口，另一端连接电脑。
+4. 电脑识别到设备后松开 `RESET`，RKDevTool 通常会显示 `Loader`。
+
+如果 `RESET` 方式无法进入刷机模式，可以按“第一次从原厂系统刷入”的短接方式进入 `MaskROM` 后再刷。
+
+### 模式区别
+
+- `MaskROM`：常见于第一次刷机或救砖，需要先写入 loader，再写入 img 镜像。
+- `Loader`：常见于后续再次刷机，一般只需要写入 img 镜像。
 
 ## Windows 刷机
 
 1. 安装 RKDevTool 里的驱动，打开 RKDevTool。
-2. 准备 Type-C 数据线，一头接 OEC-turbo，另一头接电脑。
-3. 首次从原厂系统刷入时，不接外置电源，用镊子等金属工具短接上图两个点。
-4. 保持短接时插入 Type-C，大约 2 秒后电脑提示有设备接入，再松开短接点。
-5. 后续再次刷机时，不接外置电源，按住 `RESET` 孔后插入 Type-C，电脑识别到设备后再松开 `RESET`。
-6. 查看 RKDevTool 提示当前是 `MaskROM` 还是 `Loader`。
+2. 把下载到的 `*.img.gz` 镜像先解压成 `.img`，不要直接刷 `.gz` 压缩包。
+3. 按上面的说明让 OEC-turbo 进入刷机模式。
+4. 查看 RKDevTool 提示当前是 `MaskROM` 还是 `Loader`。
 
 如果是第一次刷机，通常进入 `MaskROM`，需要同时选择 loader 和 img 镜像。如果之前已经刷过 Armbian/OpenWrt，再刷通常进入 `Loader`，只选择 img 镜像即可。
 
@@ -41,7 +68,7 @@ RKDevTool 两行路径示例：
 0x00000000  system       <解压后的 .img 文件路径>
 ```
 
-镜像要先解压成 `.img`，不要直接刷 `.gz` 压缩包。
+确认路径后执行刷写，等待 RKDevTool 提示完成再断开 Type-C。
 
 ![RKDevTool MaskROM 写入示例](images/rkdevtool-maskrom.jpg)
 
@@ -68,7 +95,7 @@ make -j $(nproc)
 cp rkdeveloptool /opt/homebrew/bin/
 ```
 
-进入刷机模式后查看设备。首次从原厂系统刷入时通常需要短接；后续再次刷机时，不接外置电源，按住 `RESET` 孔后插入 Type-C 即可。
+按上面的说明让 OEC-turbo 进入刷机模式后，查看设备状态：
 
 ```sh
 rkdeveloptool ld
