@@ -20,11 +20,69 @@ find_firewall_zone() {
     return 1
 }
 
-if uci -q get network.wan >/dev/null; then
+interface_exists() {
+    uci -q get network."$1" >/dev/null
+}
+
+interface_device() {
+    local iface="$1"
+    local device
+
+    device="$(uci -q get network."$iface".device)"
+    if [ -n "$device" ]; then
+        printf '%s\n' "$device"
+        return 0
+    fi
+
+    uci -q get network."$iface".ifname
+}
+
+copy_interface_device() {
+    local target="$1"
+    local source="$2"
+    local device ifname
+
+    device="$(uci -q get network."$source".device)"
+    if [ -n "$device" ]; then
+        uci set network."$target".device="$device"
+        return 0
+    fi
+
+    ifname="$(uci -q get network."$source".ifname)"
+    if [ -n "$ifname" ]; then
+        uci set network."$target".ifname="$ifname"
+    fi
+}
+
+physical_interface_count() {
+    local count=0
+    local path name
+
+    for path in /sys/class/net/*; do
+        [ -e "$path" ] || continue
+        name="${path##*/}"
+        case "$name" in
+            lo|br-*|bond*|dummy*|ifb*|sit*|tun*|tap*|veth*|wg*) continue ;;
+        esac
+        [ -e "$path/device" ] || continue
+        count=$((count + 1))
+    done
+
+    printf '%s\n' "$count"
+}
+
+physical_count="$(physical_interface_count)"
+if [ "$physical_count" -le 1 ]; then
+    bypass_iface='lan'
+elif interface_exists wan; then
     bypass_iface='wan'
 else
     bypass_iface='lan'
-    uci -q get network.lan >/dev/null || uci set network.lan='interface'
+fi
+
+interface_exists "$bypass_iface" || uci set network."$bypass_iface"='interface'
+if [ "$bypass_iface" = 'lan' ] && [ -z "$(interface_device lan)" ]; then
+    copy_interface_device lan wan
 fi
 
 uci set network."$bypass_iface".proto='static'
@@ -35,6 +93,10 @@ uci -q delete network."$bypass_iface".dns
 uci add_list network."$bypass_iface".dns='10.11.11.1'
 uci add_list network."$bypass_iface".dns='119.29.29.29'
 uci delete network."${bypass_iface}6" 2>/dev/null || true
+if [ "$bypass_iface" = 'lan' ]; then
+    uci delete network.wan 2>/dev/null || true
+    uci delete network.wan6 2>/dev/null || true
+fi
 
 uci -q get dhcp.lan >/dev/null || uci set dhcp.lan='dhcp'
 uci set dhcp.lan.interface='lan'

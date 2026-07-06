@@ -97,7 +97,7 @@ IMMORTALWRT_BYPASS_ROOTFS_PARTSIZE=4096
 脚本会设置：
 
 - 静态管理地址：`10.11.11.3/24`
-- 双网口环境优先配置 `wan`；单网口环境没有 `wan` 时配置 `lan`
+- 单网口环境优先配置 `lan`；多网口环境才优先配置 `wan`
 - 网关：`10.11.11.1`
 - DNS：`10.11.11.1`、`119.29.29.29`
 - 关闭 LAN DHCP
@@ -106,6 +106,15 @@ IMMORTALWRT_BYPASS_ROOTFS_PARTSIZE=4096
 - 开启 IPv4 forwarding
 
 脚本不会修改 root 密码。
+
+如果需要离线确认刷入镜像里是否包含旁路由脚本，可以使用只读分析工具：
+
+```powershell
+python -m pip install 'dissect.btrfs[full]'
+python scripts\analyze-openwrt-image.py "D:\path\to\openwrt.img"
+```
+
+该脚本会解析镜像分区、识别 rootfs 文件系统，并尽量抽取 `/etc/uci-defaults/99-bypass-router` 供排查。
 
 ## 自动构建
 
