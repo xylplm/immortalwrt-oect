@@ -57,7 +57,9 @@
 - 默认后台地址：`http://10.11.11.3:16601/`
 - 默认账号和密码：`666` / `666`
 
-构建时会从官方发布地址下载指定版本的 arm64 包并校验 SHA256。`/etc/lucky.daji/` 会写入 `/etc/sysupgrade.conf`，通过 LuCI 固件升级页面勾选“保留配置”时，Lucky 配置和后台升级后的 Lucky 文件会一起保留。
+构建时会从 [packages/lucky](packages/lucky) 使用本地 Lucky arm64 包，不再从 Lucky 服务器实时下载。`/etc/lucky.daji/` 会写入 `/etc/sysupgrade.conf`，通过 LuCI 固件升级页面勾选“保留配置”时，Lucky 配置和后台升级后的 Lucky 文件会一起保留。
+
+更新 Lucky 时，替换 [packages/lucky/lucky_3.0.0_Linux_arm64_xiaojv_waf.tar.gz](packages/lucky/lucky_3.0.0_Linux_arm64_xiaojv_waf.tar.gz) 后重新运行 Actions 即可。
 
 如果通过 RKDevTool 重新整盘刷写 `.img`，设备存储会被覆盖，Lucky 数据不会自动保留；整盘重刷前请先在 Lucky 后台备份配置。
 

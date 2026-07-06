@@ -57,8 +57,7 @@ env:
   OECT_KERNEL_REPO: ophub/kernel
   OECT_KERNEL_USAGE: stable
   OECT_BUILDER_NAME: xylplm
-  LUCKY_PACKAGE_URL: https://release.66666.host/v3.0.0beta6/3.0.0_xiaojv_waf/lucky_3.0.0_Linux_arm64_xiaojv_waf.tar.gz
-  LUCKY_PACKAGE_SHA256: d5acbfbf0778f2ba051acf347484e1b67b00ad6b63d4336ae3cd79823f882573
+  LUCKY_LOCAL_PACKAGE: packages/lucky/lucky_3.0.0_Linux_arm64_xiaojv_waf.tar.gz
   LUCKY_INSTALL_DIR: /etc/lucky.daji
   LUCKY_SERVICE_NAME: lucky.daji
 
@@ -457,8 +456,7 @@ jobs:
         shell: bash
         env:
           VARIANT: ${{ matrix.variant }}
-          LUCKY_PACKAGE_URL: ${{ env.LUCKY_PACKAGE_URL }}
-          LUCKY_PACKAGE_SHA256: ${{ env.LUCKY_PACKAGE_SHA256 }}
+          LUCKY_LOCAL_PACKAGE: ${{ env.LUCKY_LOCAL_PACKAGE }}
           LUCKY_INSTALL_DIR: ${{ env.LUCKY_INSTALL_DIR }}
           LUCKY_SERVICE_NAME: ${{ env.LUCKY_SERVICE_NAME }}
         run: |
@@ -478,9 +476,9 @@ jobs:
 
             lucky_tmp="$(mktemp -d)"
             trap 'rm -rf "$lucky_tmp"' EXIT
-            curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 --connect-timeout 30 --max-time 300 \
-              "$LUCKY_PACKAGE_URL" -o "$lucky_tmp/lucky.tar.gz"
-            printf '%s  %s\n' "$LUCKY_PACKAGE_SHA256" "$lucky_tmp/lucky.tar.gz" | sha256sum -c -
+            [ -f "$LUCKY_LOCAL_PACKAGE" ] || { echo "Local Lucky package is missing: ${LUCKY_LOCAL_PACKAGE}" >&2; exit 1; }
+            cp -v "$LUCKY_LOCAL_PACKAGE" "$lucky_tmp/lucky.tar.gz"
+            sha256sum "$lucky_tmp/lucky.tar.gz"
 
             lucky_dir="${overlay}${LUCKY_INSTALL_DIR}"
             mkdir -p "$lucky_dir"

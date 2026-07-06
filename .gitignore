@@ -6,6 +6,7 @@ profiles.json
 sha256sums
 *.tar.zst
 *.tar.gz
+!packages/lucky/*.tar.gz
 *.img
 *.img.gz
 *.manifest

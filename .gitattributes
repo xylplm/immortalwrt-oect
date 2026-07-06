@@ -5,6 +5,7 @@
 *.env text eol=lf
 *.apk binary
 *.jpg binary
+*.tar.gz binary
 files/etc/uci-defaults/* text eol=lf
 files/plus/etc/uci-defaults/* text eol=lf
 files/bypass/etc/uci-defaults/* text eol=lf
