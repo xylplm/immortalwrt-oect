@@ -18,6 +18,13 @@
 
 Type-C 数据线要接盒子的 Type-C 刷机口，不是旁边的普通 USB 口。建议使用能传数据的 Type-C 线，充电线可能无法被电脑识别。
 
+请先按设备当前状态选择对应流程：
+
+- 原厂系统第一次刷机：通常短接进入 `MaskROM` 模式，刷机软件里需要同时选择 loader 文件和解压后的 img 镜像文件。
+- 已经刷过 Armbian/OpenWrt 后再次刷机：通常通过 `RESET` 孔进入 `Loader` 模式，刷机软件里一般只需要选择解压后的 img 镜像文件。
+
+看刷机软件界面提示确认当前模式。不同模式需要选择的文件不一样，尤其不要把 `.img.gz`、`.xz` 等压缩包直接拿去刷，必须先解压成 `.img`。
+
 ![OEC-turbo 短接点](images/oect-short-point.jpg)
 
 ![OEC-turbo Type-C 口和普通 USB 口](images/oect-typec-port.jpg)
@@ -26,26 +33,28 @@ Type-C 数据线要接盒子的 Type-C 刷机口，不是旁边的普通 USB 口
 
 ### 第一次从原厂系统刷入
 
-首次从原厂系统刷入第三方系统时，通常需要短接进入 `MaskROM` 模式。
+首次从原厂系统刷入第三方系统时，通常需要短接进入 `MaskROM` 模式。这种情况下需要准备 loader 文件和要刷入的 `.img` 镜像文件。
 
 1. 拆开外壳，找到上图标出的两个短接点。
 2. 确认设备断电，不接外置电源。
 3. 用镊子或金属针短接这两个点，并保持不要松开。
 4. 在保持短接的同时，把 Type-C 数据线插入盒子的 Type-C 刷机口，另一端连接电脑。
 5. 电脑识别到新设备后再松开短接点，RKDevTool 通常会显示 `MaskROM`。
+6. 在 RKDevTool 里选择 `LoaderToDDR` 对应的 loader 文件，再选择 `system` 对应的 `.img` 镜像文件。
 
 如果电脑没有识别设备，先拔掉 Type-C，确认短接点接触稳定后再重复一次。
 
 ### 后续再次刷机
 
-已经刷过 Armbian/OpenWrt 后，再次刷机通常不需要拆机短接，可以通过 `RESET` 孔进入刷机模式。
+已经刷过 Armbian/OpenWrt 后，再次刷机通常不需要拆机短接，可以通过 `RESET` 孔进入 `Loader` 模式。这种情况下通常不用选择 loader 文件，只选择需要刷入的 `.img` 镜像文件即可。
 
 1. 设备保持断电，不接外置电源。
 2. 用卡针按住 `RESET` 孔，不要松开。
 3. 保持按住 `RESET`，把 Type-C 数据线插入盒子的 Type-C 刷机口，另一端连接电脑。
 4. 电脑识别到设备后松开 `RESET`，RKDevTool 通常会显示 `Loader`。
+5. 在 RKDevTool 里只选择 `system` 对应的 `.img` 镜像文件。
 
-如果 `RESET` 方式无法进入刷机模式，可以按“第一次从原厂系统刷入”的短接方式进入 `MaskROM` 后再刷。
+如果 `RESET` 方式无法进入刷机模式，可以按“第一次从原厂系统刷入”的短接方式进入 `MaskROM` 后再刷；进入 `MaskROM` 后就要按第一次刷机的方式选择 loader 和 img 两个文件。
 
 ### 模式区别
 
@@ -59,7 +68,17 @@ Type-C 数据线要接盒子的 Type-C 刷机口，不是旁边的普通 USB 口
 3. 按上面的说明让 OEC-turbo 进入刷机模式。
 4. 查看 RKDevTool 提示当前是 `MaskROM` 还是 `Loader`。
 
-如果是第一次刷机，通常进入 `MaskROM`，需要同时选择 loader 和 img 镜像。如果之前已经刷过 Armbian/OpenWrt，再刷通常进入 `Loader`，只选择 img 镜像即可。
+看软件的界面提示确认当前进入的是哪种模式：第一次刷机一般进入 `MaskROM` 模式，这种模式下需要选择 loader 文件和 img 镜像文件；如果之前已经刷过 Armbian 或 OpenWrt 系统，再次刷机一般进入 `Loader` 模式，这种情况下不用选择 loader 文件，只选需要刷入的 img 镜像文件即可。
+
+> [!IMPORTANT]
+> 软件上的两行文件路径必须写对，地址不对无效。`0x` 后面是 8 个大写 `C` 或 `0`。
+>
+> ```text
+> 0xCCCCCCCC  LoaderToDDR  <MiniLoaderAll.bin 文件的路径>   <点最右侧的空白块可以选择 loader 文件>
+> 0x00000000  system       <armbian.img 文件的路径>          <点最右侧的空白块可以选择 img 文件>
+> ```
+>
+> `MaskROM` 模式需要填写并选择上面两行；`Loader` 模式一般只需要填写并选择 `system` 这一行。镜像文件名不一定叫 `armbian.img`，也可以是解压后的 `immortalwrt.img` 或其他要刷入的 `.img` 文件。
 
 RKDevTool 两行路径示例：
 
