@@ -132,9 +132,9 @@ GitHub Actions 每周五北京时间 09:20 自动运行一次，并发布到 Rel
 
 ### 短接点和 Type-C 口
 
-第一次从原厂系统刷入第三方系统通常需要拆机短接进入刷机模式。以后再次刷机，一般可以按住 `RESET` 孔后连接数据线进入刷机模式。
+短接通常只在第一次从原厂系统刷入第三方系统时需要。后续再次刷机时，设备保持断电、不插外置电源，按住 `RESET` 孔后插入 Type-C 数据线，一般即可进入刷机模式。
 
-不用接电源，Type-C 刷机线本身可以供电。注意要接盒子的 Type-C 口，不是普通 USB 口。
+刷机过程全程不用接外置电源，Type-C 刷机线本身可以供电。注意要接盒子的 Type-C 口，不是普通 USB 口。
 
 ![OEC-turbo 短接点](docs/images/oect-short-point.png)
 
@@ -146,9 +146,10 @@ GitHub Actions 每周五北京时间 09:20 自动运行一次，并发布到 Rel
 
 1. 安装 RKDevTool 里的驱动，打开 RKDevTool。
 2. 准备 Type-C 数据线，一头接 OEC-turbo，另一头接电脑。
-3. 不接电源，用镊子等金属工具短接上图两个点。
-4. 保持短接时插入电脑，大约 2 秒后电脑提示有设备接入，再松开短接点。
-5. 查看 RKDevTool 提示当前是 `MaskROM` 还是 `Loader`。
+3. 首次从原厂系统刷入时，不接外置电源，用镊子等金属工具短接上图两个点。
+4. 保持短接时插入 Type-C，大约 2 秒后电脑提示有设备接入，再松开短接点。
+5. 后续再次刷机时，不接外置电源，按住 `RESET` 孔后插入 Type-C，电脑识别到设备后再松开 `RESET`。
+6. 查看 RKDevTool 提示当前是 `MaskROM` 还是 `Loader`。
 
 如果是第一次刷机，通常进入 `MaskROM`，需要同时选择 loader 和 img 镜像。如果之前已经刷过 Armbian/OpenWrt，再刷通常进入 `Loader`，只选择 img 镜像即可。
 
@@ -186,7 +187,7 @@ make -j $(nproc)
 cp rkdeveloptool /opt/homebrew/bin/
 ```
 
-短接并插入电脑后，查看设备：
+进入刷机模式后查看设备。首次从原厂系统刷入时通常需要短接；后续再次刷机时，不接外置电源，按住 `RESET` 孔后插入 Type-C 即可。
 
 ```sh
 rkdeveloptool ld
