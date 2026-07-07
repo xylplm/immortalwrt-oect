@@ -71,6 +71,21 @@ physical_interface_count() {
     printf '%s\n' "$count"
 }
 
+first_physical_interface() {
+    local path name
+
+    for path in /sys/class/net/*; do
+        [ -e "$path" ] || continue
+        name="${path##*/}"
+        case "$name" in
+            lo|br-*|bond*|dummy*|ifb*|sit*|tun*|tap*|veth*|wg*) continue ;;
+        esac
+        [ -e "$path/device" ] || continue
+        printf '%s\n' "$name"
+        return 0
+    done
+}
+
 physical_count="$(physical_interface_count)"
 if [ "$physical_count" -le 1 ]; then
     bypass_iface='lan'
@@ -83,6 +98,10 @@ fi
 interface_exists "$bypass_iface" || uci set network."$bypass_iface"='interface'
 if [ "$bypass_iface" = 'lan' ] && [ -z "$(interface_device lan)" ]; then
     copy_interface_device lan wan
+fi
+if [ -z "$(interface_device "$bypass_iface")" ]; then
+    first_iface="$(first_physical_interface)"
+    [ -n "$first_iface" ] && uci set network."$bypass_iface".device="$first_iface"
 fi
 
 uci set network."$bypass_iface".proto='static'
